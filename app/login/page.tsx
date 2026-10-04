@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
+
+export default function LoginPage() {
+  return <main className="auth-page"><section className="auth-panel"><Link href="/" className="back-link"><ArrowLeft /> Back to home</Link><div className="auth-box"><Link className="brand" href="/"><span className="brand-mark"><ShieldCheck size={20} /></span><span>GUARDRAIL</span></Link><div><span className="eyebrow">WELCOME BACK</span><h1>Sign in to your workspace</h1><p>Continue organizing your storage safely.</p></div><form><label>Email address<input type="email" placeholder="you@example.com" /></label><label>Password<input type="password" placeholder="••••••••" /></label><div className="form-row"><label className="checkbox"><input type="checkbox" /> Remember me</label><a href="#">Forgot password?</a></div><Link className="button auth-submit" href="/app/dashboard">Sign in</Link></form><p className="auth-foot">New to Guardrail? <a href="#">Create an account</a></p></div></section><aside className="auth-art"><div><ShieldCheck /><h2>Your data deserves<br />a second thought.</h2><p>Every recommendation is transparent. Every destructive action waits for you.</p></div></aside></main>;
+}

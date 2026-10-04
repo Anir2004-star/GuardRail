@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+*.log
+.env
+.env.local
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
