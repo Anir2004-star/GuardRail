@@ -1,20 +1,25 @@
 # Guardrail
 
-Guardrail is an AI-assisted, human-approved storage organizer. It helps people understand and clean up content across providers without allowing AI to perform destructive actions on its own.
+Guardrail is an assistant for organizing Gmail and Google Drive content, reviewing cleanup suggestions, and monitoring registered-device storage.
 
 ## Current milestone
 
-The repository contains the first runnable product surface:
+The repository contains a complete frontend demo:
 
 - responsive public landing page;
-- sign-in screen;
+- sign-in, signup, and password reset preview forms;
 - authenticated application shell with desktop and mobile navigation;
 - storage usage overview backed by Recharts;
-- realistic recommendation and activity views;
+- search, sorting, filters, item previews, folder organization, and item protection;
+- Gmail and Drive connection previews and cancellable sample scans;
+- smartphone, tablet, and laptop registration, including Apple and other brands, with editable sample capacities and device dashboards;
+- 70% / 90% device alert examples, protection rules, and warm-light / charcoal appearance preferences;
+- item-level recommendation review, explicit approval, separate execution, activity, and restore views;
+- notifications with read states, editable profile and preferences, help, and public information pages;
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-All data is currently seeded presentation data. Provider OAuth, persistent storage, analysis jobs, and action execution are intentionally not simulated as real operations yet.
+All provider content is sample data. Demo changes persist in local browser storage and are reflected across the frontend. Authentication forms do not create or authenticate real accounts, passwords are never stored, and reset requests do not send email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; no provider APIs or backend services are called. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -32,7 +37,10 @@ npm run lint
 npm run typecheck
 npm run build
 npm audit
+npm run test:e2e
 ```
+
+Browser tests use the production build on port 3100. After installing dependencies, run `npx playwright install chromium` once, then `npm run build` before `npm run test:e2e`.
 
 ## Safety invariant
 

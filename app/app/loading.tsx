@@ -1,0 +1,1 @@
+export default function Loading() { return <main className="workspace-page" aria-busy="true"><div className="work-panel empty-state"><h2>Opening your workspace…</h2><p>Preparing the next page.</p></div></main>; }

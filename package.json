@@ -6,8 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app components next.config.ts",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint app components lib next.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "latest",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@eslint/js": "latest",
+    "@playwright/test": "^1.64.0",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",

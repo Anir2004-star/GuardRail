@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Guardrail — Safe AI-powered storage cleanup",
   description:
-    "Organize your digital storage with AI recommendations and human-approved actions.",
+    "An assistant for organizing Gmail and Google Drive content, reviewing cleanup suggestions, and monitoring registered-device storage.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
