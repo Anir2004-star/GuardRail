@@ -2,14 +2,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Bell, Bot, ChevronDown, CircleHelp, FileHeart, FolderCog, Home, Menu, PanelLeftClose, RefreshCcw, RotateCcw, Search, Settings, Sparkles, Unplug, X } from "lucide-react";
+import { Activity, Bell, Bot, ChevronDown, CircleHelp, FileHeart, FolderCog, Home, Laptop, Menu, PanelLeftClose, RefreshCcw, RotateCcw, Search, Settings, Sparkles, Unplug, X } from "lucide-react";
 import { demoService, notifications, proposals, useDemo } from "./demo-store";
 
 const groups = [
   { label: "OVERVIEW", items: [{ name: "Dashboard", icon: Home, route: "dashboard" }] },
   { label: "CONTENT", items: [{ name: "Search", icon: Search, route: "search" }, { name: "Organize", icon: FolderCog, route: "organize" }, { name: "Protected items", icon: FileHeart, route: "protected" }] },
   { label: "GUARDRAIL AI", items: [{ name: "Assistant", icon: Bot, route: "assistant" }, { name: "Recommendations", icon: Sparkles, route: "proposals" }] },
-  { label: "OPERATIONS", items: [{ name: "Connections", icon: Unplug, route: "connections" }, { name: "Devices", icon: Home, route: "devices" }, { name: "Scan & sync", icon: RefreshCcw, route: "scan" }, { name: "Activity", icon: Activity, route: "activity" }, { name: "Restore", icon: RotateCcw, route: "restore" }] },
+  { label: "OPERATIONS", items: [{ name: "Connections", icon: Unplug, route: "connections" }, { name: "Devices", icon: Laptop, route: "devices" }, { name: "Scan & sync", icon: RefreshCcw, route: "scan" }, { name: "Activity", icon: Activity, route: "activity" }, { name: "Restore", icon: RotateCcw, route: "restore" }] },
   { label: "ACCOUNT", items: [{ name: "Notifications", icon: Bell, route: "notifications" }, { name: "Settings", icon: Settings, route: "settings" }, { name: "Help", icon: CircleHelp, route: "help" }] },
 ];
 export function AppShell({ children }: { children: React.ReactNode }) {

@@ -7,6 +7,6 @@ export function generateStaticParams() {
 }
 export default async function Page({ params }: { params: Promise<{ section: string[] }> }) {
   const { section } = await params;
-  if (!(section.length === 1 && pages.includes(section[0])) && !(section.length === 2 && (section[0] === "execution" || (section[0] === "proposals" && ["newsletters", "duplicates", "recordings"].includes(section[1])) || (section[0] === "settings" && settings.includes(section[1]))))) notFound();
+  if (!(section.length === 1 && pages.includes(section[0])) && !(section.length === 2 && (section[0] === "execution" || section[0] === "devices" || (section[0] === "proposals" && ["newsletters", "duplicates", "recordings"].includes(section[1])) || (section[0] === "settings" && settings.includes(section[1]))))) notFound();
   return <WorkspacePage section={section} />;
 }

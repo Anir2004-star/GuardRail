@@ -1,29 +1,68 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { ActivityEvent, defaultPreferences, demoService, Device, deviceService, Item, PairingSession, Preferences, proposals, seedDevices, seedItems } from "@/lib/demo-service";
 
-import { demoService, seedItems, seedDevices, defaultPreferences, Device, Preferences, Item, proposals } from "@/lib/demo-service";
-export { proposals, protectionReason, demoService, instructions } from "@/lib/demo-service";
-export type { Item, Device } from "@/lib/demo-service";
+export { proposals, protectionReason, demoService, deviceService, formatDemoDateTime, instructions } from "@/lib/demo-service";
+export type { ActivityEvent, CleanupCandidate, Device, DevicePermission, DeviceType, Item, PairingSession, StorageSummary } from "@/lib/demo-service";
 export type Execution = { id: string; proposalId: string; ids: string[]; action: string; state: "approved" | "completed"; created: string };
-type Event = { id: string; text: string; time: string; type: "content" | "sync" | "execution" | "account" | "device" };
+
 type DemoState = {
-  items: Item[]; devices: Device[]; connections: string[]; executions: Execution[]; events: Event[]; readNotifications: string[];
+  items: Item[]; devices: Device[]; connections: string[]; executions: Execution[]; events: ActivityEvent[]; readNotifications: string[];
   profile: { name: string; email: string }; preferences: Preferences; lastSync: string | null;
-  registerDevice: (device: Omit<Device, "id" | "updated">) => void; updateDevice: (id: string, device: Omit<Device, "id" | "updated">) => void;
+  confirmDemoDeviceConnection: (session: PairingSession) => Promise<string>;
+  renameDevice: (id: string, name: string) => Promise<string | null>;
+  disconnectDevice: (id: string) => Promise<void>;
+  simulatePermission: (deviceId: string, permissionId: string) => Promise<void>;
+  keepCleanupCandidate: (deviceId: string, candidateId: string) => Promise<void>;
+  simulateCleanup: (deviceId: string, candidateIds: string[]) => Promise<void>;
+  resetDemoData: () => void;
   toggleProtection: (id: string) => void; organize: (ids: string[], folder: string) => void; restore: (id: string) => void;
   connect: (provider: string) => void; scan: () => void; approve: (proposalId: string, ids: string[], action: string) => string;
   execute: (id: string) => string | null; markRead: (ids: string[]) => void;
   saveSettings: (profile: DemoState["profile"], preferences: DemoState["preferences"]) => void;
 };
 const stamp = () => new Date().toISOString();
-const event = (text: string, type: Event["type"]): Event => ({ id: crypto.randomUUID(), text, time: stamp(), type });
+const event = (text: string, type: ActivityEvent["type"]): ActivityEvent => ({ id: crypto.randomUUID(), text, time: stamp(), type });
+const initialData = () => ({
+  items: seedItems,
+  devices: seedDevices,
+  connections: ["Gmail", "Google Drive"],
+  executions: [] as Execution[],
+  events: [] as ActivityEvent[],
+  readNotifications: [] as string[],
+  profile: { name: "Anirban", email: "" },
+  preferences: defaultPreferences,
+  lastSync: null as string | null,
+});
 
 export const useDemo = create<DemoState>()(persist((set, get) => ({
-  items: seedItems, devices: seedDevices, connections: ["Gmail", "Google Drive"], executions: [], events: [], readNotifications: [],
-  profile: { name: "Anirban", email: "" }, preferences: defaultPreferences, lastSync: null,
-  registerDevice: (device) => set((s) => ({ devices: [...s.devices, { ...device, id: "gr-device-" + crypto.randomUUID(), updated: stamp() }], events: [event("Registered sample device: " + device.name, "device"), ...s.events] })),
-  updateDevice: (id, device) => set((s) => ({ devices: s.devices.map((d) => d.id === id ? { ...device, id, updated: stamp() } : d), events: [event("Updated sample device: " + device.name, "device"), ...s.events] })),
+  ...initialData(),
+  confirmDemoDeviceConnection: async (session) => {
+    const next = await deviceService.confirmDemoDeviceConnection(get().devices, session);
+    const device = next.at(-1)!;
+    set((state) => ({ devices: next, events: [event(`Connected demo device: ${device.name}`, "device"), ...state.events] }));
+    return device.id;
+  },
+  renameDevice: async (id, name) => {
+    try {
+      const devices = await deviceService.renameDevice(get().devices, id, name);
+      set((state) => ({ devices, events: [event(`Renamed demo device to ${name.trim()}`, "device"), ...state.events] }));
+      return null;
+    } catch (error) { return error instanceof Error ? error.message : "Unable to rename this demo device."; }
+  },
+  disconnectDevice: async (id) => {
+    const current = get().devices.find((device) => device.id === id);
+    const devices = await deviceService.disconnectDevice(get().devices, id);
+    set((state) => ({ devices, events: [event(`Disconnected demo device: ${current?.name ?? "Unknown device"}`, "device"), ...state.events] }));
+  },
+  simulatePermission: async (deviceId, permissionId) => { set({ devices: await deviceService.simulatePermission(get().devices, deviceId, permissionId) }); },
+  keepCleanupCandidate: async (deviceId, candidateId) => { set({ devices: await deviceService.keepCleanupCandidate(get().devices, deviceId, candidateId) }); },
+  simulateCleanup: async (deviceId, candidateIds) => {
+    const devices = await deviceService.simulateCleanup(get().devices, deviceId, candidateIds);
+    set((state) => ({ devices, events: [event(`Simulated moving ${candidateIds.length} device file(s) to Trash`, "device"), ...state.events] }));
+  },
+  resetDemoData: () => set(initialData()),
   toggleProtection: (id) => set((s) => ({ items: demoService.toggleProtection(s.items, id), events: [event("Updated item protection", "content"), ...s.events] })),
   organize: (ids, folder) => set((s) => ({ items: demoService.organize(s.items, ids, folder), events: [event(`Organized ${ids.length} sample item(s) into ${folder}`, "content"), ...s.events] })),
   restore: (id) => set((s) => ({ items: demoService.restore(s.items, id), events: [event("Restored a sample item", "content"), ...s.events] })),
@@ -49,7 +88,8 @@ export const useDemo = create<DemoState>()(persist((set, get) => ({
   },
   markRead: (ids) => set((s) => ({ readNotifications: [...new Set([...s.readNotifications, ...ids])] })),
   saveSettings: (profile, preferences) => set((s) => ({ profile, preferences, events: [event("Saved workspace preferences", "account"), ...s.events] })),
-}), { name: "guardrail-frontend-demo-v1", version: 2, migrate: () => ({ items: seedItems, devices: seedDevices, connections: ["Gmail", "Google Drive"], executions: [], events: [], readNotifications: [], profile: { name: "Anirban", email: "" }, preferences: defaultPreferences, lastSync: null }), skipHydration: true }));
+}), { name: "guardrail-frontend-demo-v1", version: 3, migrate: () => initialData(), skipHydration: true }));
+
 export const formatSize = (mb: number) => mb >= 1000 ? `${Number((mb / 1000).toFixed(3))} GB` : `${mb} MB`;
 export const notifications = [
   { id: "review", title: "Recommendations ready for review", text: "Three sample proposals explain possible cleanup and organization actions.", href: "/app/proposals" },

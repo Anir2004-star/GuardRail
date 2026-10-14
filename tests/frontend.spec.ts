@@ -147,37 +147,41 @@ test("Gmail and Drive filters match the scope and cloud usage includes mock Tras
   await expect(page.locator(".connection-card")).toHaveCount(2);
 });
 
-test("smartphone tablet and laptop registration retain Apple and other brands", async ({ page }) => {
+test("device pairing, details, cleanup, rename, disconnect, and reset stay simulated", async ({ page }) => {
+  const hydrationErrors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error" && message.text().toLowerCase().includes("hydration")) hydrationErrors.push(message.text()); });
   await page.goto("/app/devices");
-  for (const [category, name, brand, model, os, capacity, used] of [
-    ["Smartphone", "Demo Android", "Samsung", "Galaxy", "Android", "128", "60"],
-    ["Tablet", "Demo iPad", "Apple", "iPad Pro", "iPadOS", "256", "80"],
-    ["Laptop", "Demo MacBook", "Apple", "MacBook Air", "macOS", "512", "120"],
-  ]) {
-    await page.getByRole("button", { name: "Register device", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Register sample device" });
-    await dialog.getByLabel("Device category").selectOption(category);
-    await dialog.getByLabel("Device name").fill(name);
-    await dialog.getByLabel("Brand", { exact: true }).selectOption(brand);
-    await dialog.getByLabel("Model", { exact: true }).fill(model);
-    await dialog.getByLabel("Operating system").selectOption(os);
-    await dialog.getByLabel("Sample storage capacity (GB)").fill(capacity);
-    await dialog.getByLabel("Sample used storage (GB)").fill(String(Number(capacity) + 1));
-    await dialog.getByRole("button", { name: "Register sample device" }).click();
-    await expect(dialog.getByRole("alert")).toContainText("cannot exceed");
-    await dialog.getByLabel("Sample used storage (GB)").fill(used);
-    await dialog.getByRole("button", { name: "Register sample device" }).click();
-    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  }
+  await expect(page.getByText("Last updated 11 Oct 2026, 9:30 AM").first()).toBeVisible();
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a demo device" });
+  await dialog.getByRole("button", { name: /Smartphone/ }).click();
+  await dialog.getByRole("button", { name: "Continue" }).click();
+  await expect(dialog).toContainText("companion app is not available yet");
+  await dialog.getByRole("button", { name: "Try demo pairing" }).click();
+  await dialog.getByLabel("Device pairing code").fill("123456");
+  await dialog.getByRole("button", { name: "Verify code" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("does not match");
+  const code = (await dialog.locator(".companion-sample > div").textContent())!.trim();
+  await dialog.getByLabel("Device pairing code").fill(code);
+  await dialog.getByRole("button", { name: "Verify code" }).click();
+  await expect(dialog).toContainText("Connect this device to your account?");
+  await dialog.getByRole("button", { name: "Confirm connection" }).click();
+  await dialog.getByRole("link", { name: "View device" }).click();
+  await expect(page.getByRole("heading", { name: "Anirban’s phone" })).toBeVisible();
+  await page.getByRole("checkbox", { name: /course-assets/ }).check();
+  await page.getByRole("button", { name: "Review selected items" }).click();
+  const cleanup = page.getByRole("dialog", { name: "Review selected demo cleanup files" });
+  await expect(cleanup).toContainText("course-assets.zip");
+  await cleanup.getByRole("button", { name: "Confirm simulated cleanup" }).click();
+  await expect(page.getByRole("status")).toContainText("Used storage was not reduced");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("dialog", { name: "Rename demo device" }).getByLabel("Device name").fill("Renamed phone");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByRole("heading", { name: "Renamed phone" })).toBeVisible();
   await page.reload();
-  await expect(page.locator(".connection-card")).toHaveCount(6);
-  const card = page.locator(".connection-card").filter({ has: page.getByRole("heading", { name: "Demo MacBook", exact: true }) });
-  await expect(card).toContainText("392 GB");
-  await card.getByRole("button", { name: "Edit sample device" }).click();
-  await page.getByRole("dialog").getByLabel("Device name").fill("Renamed MacBook");
-  await page.getByRole("button", { name: "Save sample device" }).click();
-  await expect(page.getByRole("heading", { name: "Renamed MacBook" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Renamed phone" })).toBeVisible();
   for (const width of [390, 768, 1440]) { await page.setViewportSize({ width, height: 900 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); }
+  expect(hydrationErrors).toEqual([]);
   await page.screenshot({ path: "test-results/device-dashboard.png", fullPage: true });
 });
 
