@@ -3,10 +3,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, FileText, FolderOpen, RefreshCcw, Search, ShieldCheck, Sparkles } from "lucide-react";
-import { demoService, protectionReason, instructions, formatDemoDateTime, formatSize, Item, notifications, proposals, useDemo } from "./demo-store";
+import { demoService, protectionReason, formatDemoDateTime, formatSize, Item, notifications, proposals, useDemo } from "./demo-store";
 
 import { DeviceDetailsPage, DevicesPage } from "./device-pages";
 import { ScopeSettings } from "./scope-settings";
+import { ActivityHistoryPage, CleanupReviewPage, ConnectionsDevicesPage, ProtectedItemsPage } from "./review-pages";
+import { AssistantPage } from "./assistant-page";
 
 function Heading({ title, description, children }: { title: string; description: string; children?: React.ReactNode }) {
   return <div className="page-heading"><div><span className="eyebrow">YOUR WORKSPACE</span><h1>{title}</h1><p>{description}</p></div>{children}</div>;
@@ -67,13 +69,6 @@ function ExecutionPage({ id }: { id: string }) {
   return <><Heading title={run.state === "completed" ? "Demo execution completed" : "Approved and ready"} description="Only the exact approved sample items are included in this operation." /><div className="work-panel execution-panel"><div className="execution-steps"><span><Check />Reviewed</span><span><Check />Approved</span><span>{run.state === "completed" ? <Check /> : "3"}Revalidate & execute</span><span>{run.state === "completed" ? <Check /> : "4"}Complete</span></div><h2>{run.ids.length} items · {run.action === "trash" ? "Move to demo trash" : "Move into Archive"}</h2><ul>{items.map((i) => <li key={i.id}>{i.name} <small>{i.provider}</small></li>)}</ul>{error && <Notice>{error}</Notice>}{run.state === "approved" ? <button className="button" onClick={() => { const message = state.execute(id); setError(message ?? ""); }}>Execute approved demo action</button> : <Notice>Completed. Your real provider data has not changed.</Notice>}<div className="inline-links"><Link href="/app/activity">View activity</Link><Link href={run.action === "trash" ? "/app/restore" : "/app/organize"}>{run.action === "trash" ? "Restore items" : "View organized items"}</Link><Link href={`/app/proposals/${run.proposalId}`}>Review proposal</Link></div></div></>;
 }
 
-function ConnectionsPage() {
-  const state = useDemo();
-  return <><Heading title="Your connected accounts" description="Try connection states with sample data. Real OAuth will be provided by the backend." /><div className="connection-grid">{["Gmail", "Google Drive"].map((p, index) => {
-    const connected = state.connections.includes(p);
-    return <article className="work-panel connection-card" key={p}><span className={`provider-logo provider-${index}`}><FolderOpen /></span><span className="badge">{connected ? "Demo connected" : "Disconnected"}</span><h2>{p}</h2><p>{p === "Gmail" ? "Planned: search authorized messages; suggest categories and labels; protect starred messages and selected senders; identify promotional-email candidates; review exact messages; move approved messages to Trash where supported." : "Planned: search accessible files; suggest folders and categories; protect selected files and folders; identify duplicate candidates; review large or old files without assuming they are unimportant; review exact files; move approved files to Trash where supported."}</p><dl className="detail-list"><dt>Access</dt><dd>{connected ? "Sample metadata only" : "No provider authorization"}</dd><dt>Account</dt><dd>{connected ? "Demo account" : "Not connected"}</dd></dl><button className={connected ? "secondary" : "button small"} onClick={() => state.connect(p)}>{connected ? "Disconnect demo" : "Use sample data"}</button></article>;
-  })}</div></>;
-}
 function ScanPage() {
   const state = useDemo(); const [step, setStep] = useState(0); const [running, setRunning] = useState(false); const [done, setDone] = useState(false); const [provider, setProvider] = useState("All connected accounts");
   const labels = ["Read sample metadata", "Normalize sample index", "Apply protection rules", "Build sample recommendations"];
@@ -85,29 +80,11 @@ function ScanPage() {
   }, [running, step, state.scan]);
   return <><Heading title="Scan & sync" description="Preview the indexing workflow using the content already in your demo workspace." /><section className="work-panel scan-panel"><div className="panel-header"><h2>Run a sample scan</h2><span className="badge">{running ? "Scanning" : done ? "Complete" : "Ready"}</span></div><div className="filter-bar"><select aria-label="Scan provider" value={provider} disabled={running} onChange={(e) => setProvider(e.target.value)}><option>All connected accounts</option>{state.connections.map((p) => <option key={p}>{p}</option>)}</select><button className="button small" disabled={running || !canScan} onClick={() => { setStep(0); setDone(false); setRunning(true); }}>Start demo scan</button>{running && <button className="secondary" onClick={() => setRunning(false)}>Cancel scan</button>}</div>{!canScan && <Notice>Connect a demo account before scanning. <Link href="/app/connections">Open connections</Link></Notice>}<ol className="scan-steps">{labels.map((label, i) => <li className={done || (running && i <= step) ? "step-active" : ""} key={label}><span>{done || (running && i < step) ? <Check size={16} /> : i + 1}</span><div><b>{label}</b><small>{done ? "Completed" : running && i === step ? "Processing sample content…" : "Sample workflow"}</small></div></li>)}</ol>{done && <Notice>Demo scan completed for {provider}. <Link href="/app/proposals">Review recommendations →</Link></Notice>}<p className="panel-note">No provider requests are made. Last demo sync: {state.lastSync ? formatDemoDateTime(state.lastSync) : "Not yet run"}.</p></section></>;
 }
-function ActivityPage() {
-  const state = useDemo(); const [filter, setFilter] = useState("all");
-  const events = state.events.filter((e) => filter === "all" || e.type === filter);
-  return <><Heading title="Activity history" description="Follow the actions taken in this browser's demo workspace." /><section className="work-panel"><div className="filter-bar"><select aria-label="Activity filter" value={filter} onChange={(e) => setFilter(e.target.value)}>{["all", "content", "sync", "execution", "account", "device"].map((p) => <option key={p} value={p}>{p === "all" ? "All activity" : p}</option>)}</select></div>{events.length ? <div className="timeline">{events.map((e) => <div key={e.id}><span className="activity-icon"><Check size={15} /></span><span><b>{e.text}</b><small>{formatDemoDateTime(e.time)} · {e.type}</small></span></div>)}</div> : <Empty title="No activity yet" text="Run a sample scan, organize an item, or review a recommendation to see its history here." />}</section>{state.executions.length > 0 && <section className="work-panel history-panel"><h2>Execution records</h2>{state.executions.map((e) => <Link className="history-row" key={e.id} href={`/app/execution/${e.id}`}><span>{e.ids.length} items · {e.action}</span><span className="badge">{e.state}</span><ArrowRight size={16} /></Link>)}</section>}</>;
-}
 function NotificationsPage() {
   const state = useDemo(); const [unreadOnly, setUnreadOnly] = useState(false);
   const visible = notifications.filter((n) => !unreadOnly || !state.readNotifications.includes(n.id));
   return <><Heading title="Notifications" description="Updates and reminders for your demo workspace."><button className="secondary" onClick={() => state.markRead(notifications.map((n) => n.id))}>Mark all read</button></Heading><label className="check-row"><input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />Unread only</label><section className="work-panel">{visible.length ? visible.map((n) => <article className="notification-row" key={n.id}><span className="stat-icon plum"><Sparkles /></span><div><h2>{n.title}</h2><p>{n.text}</p><Link href={n.href}>View details →</Link></div>{state.readNotifications.includes(n.id) ? <span className="badge">Read</span> : <button className="secondary" onClick={() => state.markRead([n.id])}>Mark read</button>}</article>) : <Empty title="You're all caught up" text="There are no unread demo notifications." />}</section></>;
 }
-function AssistantPage() {
-  const [input, setInput] = useState(""); const [messages, setMessages] = useState<{ role: string; text: string; href?: string }[]>([{ role: "assistant", text: "Welcome! I can guide you through the sample workspace. Try asking about duplicates, protection, or cleanup." }]);
-  const end = useRef<HTMLDivElement>(null);
-  function send(text: string) {
-    if (!text.trim()) return;
-    const query = text.toLowerCase();
-    const response = query.includes("protect") ? { text: "Open Protected items to see what is excluded from cleanup. You can protect another item from Search using its Protect button.", href: "/app/protected" } : query.includes("connect") || query.includes("account") ? { text: "Connections lets you try Gmail and Drive demo states. Real authorization will be connected through the backend.", href: "/app/connections" } : query.includes("restor") ? { text: "Restore lists sample items in trash. Restoring returns them to the content index in this browser.", href: "/app/restore" } : { text: "Review the sample recommendations, select exact items, and approve the operation. Then use the separate execution screen to try the demo action. This is a scripted guide; live AI is not connected yet.", href: "/app/proposals" };
-    setMessages((m) => [...m, { role: "you", text: text.trim() }, { role: "assistant", ...response }]); setInput("");
-  }
-  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [messages]);
-  return <><Heading title="Ask Guardrail" description="A scripted frontend guide to help you explore the sample workflows." /><section className="work-panel chat-panel"><div className="chat-messages" aria-live="polite">{messages.map((m, i) => <div className={`chat-message ${m.role === "you" ? "from-user" : ""}`} key={i}><span>{m.role === "you" ? "YOU" : "GUARDRAIL · DEMO GUIDE"}</span><p>{m.text}</p>{m.href && <Link href={m.href}>Open workspace page →</Link>}</div>)}<div ref={end} /></div><div className="suggestion-chips">{instructions.map((q) => <button className="secondary" key={q} onClick={() => send(q)}>{q}</button>)}</div><form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(input); }}><input aria-label="Message to Guardrail" placeholder="Ask about your demo workspace…" value={input} maxLength={1000} onChange={(e) => setInput(e.target.value)} /><button className="button small" disabled={!input.trim()}>Send <ArrowRight size={16} /></button></form></section></>;
-}
-
 function HelpPage() {
   return <><Heading title="A little guidance" description="Learn how to explore Guardrail and keep control of your content." /><section className="work-panel help-panel">{[
     ["How do I try cleanup?", "Open Recommendations, review a proposal, select exact sample items, and tick the confirmation. Approval opens a separate execution screen. The Execute button changes only the local sample data."],
@@ -122,13 +99,15 @@ function HelpPage() {
 export function WorkspacePage({ section }: { section: string[] }) {
   const page = section[0];
   let content: React.ReactNode;
-  if (["search", "organize", "protected", "restore"].includes(page)) content = <ContentPage mode={page as "search" | "organize" | "protected" | "restore"} />;
+  if (["search", "organize", "restore"].includes(page)) content = <ContentPage mode={page as "search" | "organize" | "restore"} />;
+  else if (page === "protected") content = <ProtectedItemsPage />;
+  else if (page === "cleanup") content = <CleanupReviewPage />;
   else if (page === "proposals") content = section[1] ? <ProposalDetail id={section[1]} key={section[1]} /> : <ProposalsPage />;
   else if (page === "execution") content = <ExecutionPage id={section[1]} />;
   else if (page === "devices") content = section[1] ? <DeviceDetailsPage id={section[1]} key={section[1]} /> : <DevicesPage />;
-  else if (page === "connections") content = <ConnectionsPage />;
+  else if (page === "connections") content = <ConnectionsDevicesPage />;
   else if (page === "scan") content = <ScanPage />;
-  else if (page === "activity") content = <ActivityPage />;
+  else if (page === "activity") content = <ActivityHistoryPage />;
   else if (page === "notifications") content = <NotificationsPage />;
   else if (page === "assistant") content = <AssistantPage />;
   else if (page === "settings") content = <ScopeSettings tab={section[1]} key={section[1]} />;

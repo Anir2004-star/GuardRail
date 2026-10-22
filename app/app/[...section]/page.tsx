@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { WorkspacePage } from "@/components/workspace-pages";
-const pages = ["search", "organize", "protected", "assistant", "proposals", "connections", "devices", "scan", "activity", "restore", "notifications", "settings", "help"];
+const pages = ["search", "organize", "protected", "assistant", "proposals", "connections", "cleanup", "devices", "scan", "activity", "restore", "notifications", "settings", "help"];
 const settings = ["general", "preferences", "storage", "devices", "appearance", "security", "privacy", "connections"];
 export function generateStaticParams() {
   return [...pages.map((s) => ({ section: [s] })), ...settings.map((s) => ({ section: ["settings", s] })), ...["newsletters", "duplicates", "recordings"].map((s) => ({ section: ["proposals", s] }))];

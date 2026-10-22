@@ -4,7 +4,7 @@ test("all sidebar pages navigate and mark the active link", async ({ page }) => 
   const errors: string[] = []; page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/app/dashboard");
   const nav = page.getByRole("navigation", { name: "Workspace navigation" });
-  for (const name of ["Search", "Organize", "Protected items", "Assistant", "Recommendations", "Connections", "Devices", "Scan & sync", "Activity", "Restore", "Notifications", "Settings", "Help", "Dashboard"]) {
+  for (const name of ["AI Assistant", "Connections & Devices", "Cleanup Review", "Protected Items", "Activity", "Settings", "Overview"]) {
     await nav.getByRole("link", { name, exact: true }).click();
     await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.locator("main h1")).toBeVisible();
@@ -13,7 +13,7 @@ test("all sidebar pages navigate and mark the active link", async ({ page }) => 
   await expect(page.locator(".app-shell")).toHaveClass(/is-collapsed/);
   await page.getByRole("button", { name: "Expand sidebar" }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await expect(page.locator(".chart-wrap svg path").first()).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Google account sample storage" })).toBeVisible();
   await page.screenshot({ path: "test-results/desktop-dashboard.png", fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -84,17 +84,40 @@ test("search filters, preview, organization, settings, and notifications persist
   await expect(page.getByRole("heading", { name: "You're all caught up" })).toBeVisible();
 });
 
-test("demo scan is cancellable and assistant links to recommendations", async ({ page }) => {
+test("demo scan is cancellable and the assistant returns structured sample results", async ({ page }) => {
   await page.goto("/app/scan");
   await page.getByRole("button", { name: "Start demo scan" }).click();
   await page.getByRole("button", { name: "Cancel scan" }).click();
   await expect(page.getByRole("button", { name: "Start demo scan" })).toBeEnabled();
   await page.getByRole("button", { name: "Start demo scan" }).click();
   await expect(page.getByRole("status")).toContainText("Demo scan completed");
-  await page.goto("/app/assistant");
-  await page.getByRole("button", { name: "Find duplicate Google Drive files. Keep the original files in my Projects folder." }).click();
-  await page.getByRole("link", { name: "Open workspace page" }).click();
-  await expect(page).toHaveURL(/\/app\/proposals$/);
+  await page.goto("/app/assistant?prompt=Find%20emails%20larger%20than%2010%20MB");
+  await expect(page.getByText(/Found 3 sample emails larger than 10 MB/)).toBeVisible();
+  await expect(page.getByText("Email size greater than 10 MB")).toBeVisible();
+  await expect(page.getByText("Autumn travel offers")).toBeVisible();
+  await page.getByRole("button", { name: "View details" }).first().click();
+  await expect(page.getByRole("dialog", { name: "Assistant item details" })).toContainText("Stable ID");
+  await page.getByRole("button", { name: "Close item details" }).click();
+});
+
+test("assistant clarification, protection rule, and organization stay review-first", async ({ page }) => {
+  await page.goto("/app/assistant?prompt=Clean%20everything");
+  await expect(page.getByText("Which source should I review, and what should count as old?")).toBeVisible();
+  await expect(page.getByText("Nothing has been selected or changed.")).toBeVisible();
+  const composer = page.getByLabel("Message the demo assistant");
+  await composer.fill("Protect emails from registrar@college-demo.test");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(/Protection rule preview/)).toBeVisible();
+  await page.getByRole("button", { name: "Save protection rule" }).click();
+  await expect(page.getByText(/Protection rule saved/)).toBeVisible();
+  await page.goto("/app/protected");
+  await expect(page.getByText("Semester registration update")).toBeVisible();
+  await page.goto("/app/assistant?prompt=Group%20my%20project%20documents%20into%20folders");
+  await expect(page.getByText(/Found 2 related project documents/)).toBeVisible();
+  await page.getByRole("button", { name: "Simulate organizing 2 items" }).click();
+  await expect(page.locator(".assistant-action-result")).toContainText("Completed");
+  await page.goto("/app/activity");
+  await expect(page.getByText("Organization action · Demo")).toBeVisible();
 });
 
 test("signup validates matching passwords and never stores a password", async ({ page }) => {
@@ -109,7 +132,7 @@ test("signup validates matching passwords and never stores a password", async ({
   await page.getByLabel("Confirm password").fill("example-password");
   await page.getByRole("button", { name: "Create demo workspace" }).click();
   await expect(page).toHaveURL(/\/app\/dashboard$/);
-  await expect(page.getByRole("heading", { name: "Welcome, Frontend User." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Storage overview" })).toBeVisible();
   const saved = await page.evaluate(() => localStorage.getItem("guardrail-frontend-demo-v1"));
   expect(saved).not.toContain("example-password");
   await page.goto("/forgot-password");
@@ -122,13 +145,51 @@ test("mobile navigation and pages fit the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/app/dashboard");
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Search", exact: true }).click();
+  await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Cleanup Review", exact: true }).click();
   await expect(page.locator(".app-sidebar")).not.toHaveClass(/open/);
   for (const route of ["/", "/login", "/signup", "/features", "/privacy", "/app/dashboard", "/app/search", "/app/proposals", "/app/proposals/newsletters", "/app/connections", "/app/devices", "/app/assistant", "/app/settings/storage"]) {
     await page.goto(route);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), route).toBe(true);
   }
   await page.screenshot({ path: "test-results/mobile-settings.png", fullPage: true });
+});
+
+test("unified cleanup review protects items, handles partial failure, retries, and records activity", async ({ page }) => {
+  await page.goto("/app/dashboard");
+  await expect(page.getByRole("heading", { name: "Google account storage" })).toBeVisible();
+  await expect(page.getByText("One shared Google quota")).toBeVisible();
+  await expect(page.locator(".next-action").getByText("8 items waiting for review.")).toBeVisible();
+  await page.goto("/app/cleanup");
+  const promo = page.locator(".suggestion-card").filter({ hasText: "Autumn travel offers" });
+  await promo.getByRole("button", { name: "Always protect" }).click();
+  await expect(promo.getByText("Always protected")).toBeVisible();
+  await expect(promo.getByRole("checkbox")).toBeDisabled();
+  await page.getByRole("checkbox", { name: "Select Sketch-Installer-2025.dmg" }).check();
+  await page.getByRole("checkbox", { name: "Select portfolio-assets-copy.zip" }).check();
+  await page.getByRole("button", { name: "Review selected cleanup" }).click();
+  const dialog = page.getByRole("dialog", { name: "Review exact demo action" });
+  await expect(dialog).toContainText("Selected item count");
+  await dialog.getByRole("button", { name: "Simulate moving 2 items to Trash" }).click();
+  await expect(dialog).toContainText("Partially completed");
+  await expect(dialog).toContainText("permission changed");
+  await dialog.getByRole("button", { name: "Retry failed items only" }).click();
+  await expect(dialog).toContainText("Completed");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.goto("/app/protected");
+  await expect(page.getByText("Autumn travel offers")).toBeVisible();
+  await page.goto("/app/activity");
+  await page.locator(".activity-row").filter({ hasText: "Cleanup action" }).first().click();
+  await expect(page.getByRole("dialog", { name: "Simulated activity details" })).toContainText("Approved");
+});
+
+test("per-source thresholds validate and save", async ({ page }) => {
+  await page.goto("/app/settings/storage");
+  await page.getByLabel("Warning threshold (%)").fill("95");
+  await expect(page.getByText("Warning threshold must be lower than high-usage threshold.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save thresholds" })).toBeDisabled();
+  await page.getByLabel("Warning threshold (%)").fill("75");
+  await page.getByRole("button", { name: "Save thresholds" }).click();
+  await expect(page.getByRole("status")).toContainText("saved");
 });
 
 test("Gmail and Drive filters match the scope and cloud usage includes mock Trash", async ({ page }) => {
@@ -140,9 +201,11 @@ test("Gmail and Drive filters match the scope and cloud usage includes mock Tras
   await expect(page.locator("tbody tr")).toHaveCount(6);
   await expect(page.getByRole("button", { name: /Project-diagram.png/ })).toBeVisible();
   await page.goto("/app/dashboard");
-  await expect(page.locator(".storage-legend")).toContainText("17 MB");
-  await expect(page.locator(".storage-legend")).toContainText("5.039 GB");
-  await expect(page.locator(".chart-center")).toContainText("5.056 GB");
+  const googleStorage = page.locator(".cloud-source");
+  await expect(googleStorage).toContainText("Gmail4 GB");
+  await expect(googleStorage).toContainText("Google Drive7 GB");
+  await expect(googleStorage).toContainText("Other account usage1 GB");
+  await expect(googleStorage).toContainText("12 GBused of 15 GB");
   await page.goto("/app/connections");
   await expect(page.locator(".connection-card")).toHaveCount(2);
 });
