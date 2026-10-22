@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { app } from "./app.js";
 import { env } from "./config/env.js";
+import { disconnectDatabase } from "./config/database.js";
 
 let server: Server;
 let shuttingDown = false;
@@ -27,13 +28,19 @@ function shutDown(signal: NodeJS.Signals): void {
   forceTimer.unref();
 
   server.close((error) => {
-    clearTimeout(forceTimer);
     if (error) {
-      console.error("Guardrail backend stopped with an error.", error);
+      console.error("Guardrail backend stopped with an error.");
       process.exit(1);
     }
-    console.log("Guardrail backend stopped.");
-    process.exit(0);
+    // Keep the existing deadline active while the database pool drains.
+    void disconnectDatabase().then(() => {
+      clearTimeout(forceTimer);
+      console.log("Guardrail backend stopped.");
+      process.exit(0);
+    }).catch(() => {
+      console.error("Guardrail backend could not close database connections cleanly.");
+      process.exit(1);
+    });
   });
 }
 

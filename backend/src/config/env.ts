@@ -6,6 +6,7 @@ export type Environment = Readonly<{
   PORT: number;
   NODE_ENV: NodeEnvironment;
   FRONTEND_ORIGIN: string;
+  DATABASE_URL: string;
 }>;
 
 const supportedEnvironments = new Set<NodeEnvironment>(["development", "test", "production"]);
@@ -47,11 +48,26 @@ function parseFrontendOrigin(value: string | undefined): string {
   }
 }
 
+function parseDatabaseUrl(value: string | undefined): string {
+  try {
+    if (!value) throw new Error("missing");
+    const url = new URL(value);
+    if (!["postgresql:", "postgres:"].includes(url.protocol) || !url.hostname || url.pathname.length < 2) {
+      throw new Error("invalid");
+    }
+    return value;
+  } catch {
+    // Never include the supplied value: it may contain credentials.
+    throw new Error("Invalid environment configuration: DATABASE_URL must be a PostgreSQL URL with a host and database name.");
+  }
+}
+
 export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Environment {
   return Object.freeze({
     PORT: parsePort(source.PORT),
     NODE_ENV: parseNodeEnvironment(source.NODE_ENV),
     FRONTEND_ORIGIN: parseFrontendOrigin(source.FRONTEND_ORIGIN),
+    DATABASE_URL: parseDatabaseUrl(source.DATABASE_URL),
   });
 }
 

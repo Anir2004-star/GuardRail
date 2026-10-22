@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+!.env.postgres.example
 node_modules/
 dist/
+src/generated/
 *.log
