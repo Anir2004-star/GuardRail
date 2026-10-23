@@ -17,6 +17,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:verify": "tsx scripts/verify-database.ts",
+    "db:verify:auth-schema": "node scripts/verify-auth-schema.mjs",
     "test": "npm run build && node --test tests/*.test.mjs"
   },
   "dependencies": {

@@ -66,9 +66,87 @@ If port 5432 is occupied, use `POSTGRES_PORT=5433` in `.env.postgres` and
 `localhost:5433` in `.env`. The current local Guardrail setup uses **5433** because
 another project owns 5432. Examples keep 5432 as the conventional default.
 
-Startup validates all four backend variables. DATABASE_URL must exist and use
+Startup validates the database/server variables and the authentication settings below. DATABASE_URL must exist and use
 `postgresql://` or `postgres://` with a host and database name. Validation errors
 never echo the supplied connection string.
+
+### Authentication settings (configuration step)
+
+Add these to `backend/.env`, preserving the existing database and server settings:
+
+```dotenv
+JWT_ACCESS_SECRET=replace_with_your_generated_64_character_hex_secret
+JWT_ISSUER=guardrail-api
+JWT_AUDIENCE=guardrail-web
+ACCESS_TOKEN_TTL_SECONDS=900
+REFRESH_SESSION_TTL_SECONDS=604800
+BCRYPT_ROUNDS=12
+```
+
+Generate your own signing secret in the backend terminal:
+
+```cmd
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Copy only its output over the JWT_ACCESS_SECRET placeholder, on the same line.
+Keep it private; never share terminal output or commit `.env`. The application
+requires a 32-to-128-byte hex secret (64 to 256 characters), rejecting obvious
+placeholders and low-diversity values. Format checks cannot establish randomness;
+use the cryptographic generator above. There is no default signing secret.
+
+Issuer and audience default to the shown identifiers and must be nonempty ASCII
+strings without whitespace (up to 200 characters). Access tokens default to 900
+seconds (15 minutes), allowed range 60 to 3600. Refresh sessions default to 604800
+seconds (7 days), allowed range 3600 to 2592000 (30 days). Bcrypt rounds default to
+12, allowed range 10 to 14. These are configuration settings only at this step;
+registration, token issuance, cookies and sessions are implemented in later steps.
+No JWT_REFRESH_SECRET is used because refresh tokens will be opaque random values.
+
+### Authentication database preparation (step 4)
+
+Migration `20261023212452_add_password_hash_and_refresh_sessions` adds a nullable
+`users.password_hash` column and the `refresh_sessions` table. It adds no default
+password and does not recreate or delete users. Password registration will write
+a 60-character bcrypt hash; a user whose hash is null must not be allowed to log
+in with a password when the login service is added.
+
+Refresh sessions store a UUID ID, user relation, unique 64-character SHA-256 token
+hash, family UUID, creation/expiry/revocation timestamps, and an optional unique
+replacement-session relation. No raw refresh-token column exists. Indexes support
+user lookup, family revocation and expiry cleanup; unique constraints already
+index the token hash and replacement ID. Deleting a user deletes their sessions.
+
+The future auth service must keep the same family ID and fixed expiry during
+rotation, revoke/consume the predecessor atomically, and retain consumed rows
+through the family's expiry so reuse can be recognized. There is no cleanup job
+or rotation service at this stage; the schema alone does not enforce these flows.
+No password hashing, registration, login, cookies or token issuance is implemented
+in step 4.
+
+Apply the migration and regenerate the client from the backend folder:
+
+```cmd
+npm run db:validate
+npm run db:deploy
+npm run db:generate
+npm run typecheck
+npm test
+```
+
+For isolated verification after building:
+
+```cmd
+npm run build
+npm run db:verify:auth-schema
+```
+
+That script requires a local database role with CREATE DATABASE permission. It
+creates a uniquely named `guardrail_step4_test_...` database, adds a temporary
+legacy user under the old schema, applies the new migration SQL, checks record
+preservation, session relations and uniqueness constraints, and removes only its
+own temporary database. It never inserts test users or sessions into Guardrail's
+development database. The normal test suite does not need that permission.
 
 ### 2. Start PostgreSQL
 

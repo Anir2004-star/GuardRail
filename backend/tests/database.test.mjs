@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import net from "node:net";
 import test from "node:test";
+import { randomBytes } from "node:crypto";
+
+// Tests must not depend on a developer's private signing secret.
+const testSecret = randomBytes(32).toString("hex");
+process.env.JWT_ACCESS_SECRET = testSecret;
 
 // A TCP server that accepts connections but never answers PostgreSQL handshakes.
 // This checks driver timeouts without contacting or modifying a real database.
@@ -52,7 +57,7 @@ test("environment validation rejects missing/non-PostgreSQL URLs without reveali
     });
   }
   const DATABASE_URL = "postgresql://user:secret@localhost:5433/guardrail?schema=public";
-  assert.equal(loadEnvironment({ DATABASE_URL }).DATABASE_URL, DATABASE_URL);
+  assert.equal(loadEnvironment({ DATABASE_URL, JWT_ACCESS_SECRET: testSecret }).DATABASE_URL, DATABASE_URL);
   assert.throws(() => loadEnvironment({ DATABASE_URL, PORT: "0" }), /PORT/);
   assert.throws(() => loadEnvironment({ DATABASE_URL, NODE_ENV: "staging" }), /NODE_ENV/);
   assert.throws(() => loadEnvironment({ DATABASE_URL, FRONTEND_ORIGIN: "ftp://localhost" }), /FRONTEND_ORIGIN/);
