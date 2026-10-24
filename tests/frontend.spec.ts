@@ -122,19 +122,20 @@ test("assistant clarification, protection rule, and organization stay review-fir
 
 test("signup validates matching passwords and never stores a password", async ({ page }) => {
   await page.goto("/signup");
-  await page.getByLabel("Display name").fill("Frontend User");
+  await page.getByLabel("First name", { exact: true }).fill("Frontend");
+  await page.getByLabel("Last name", { exact: true }).fill("User");
   await page.getByLabel("Email address").fill("demo@example.com");
-  await page.getByLabel("Password", { exact: true }).fill("example-password");
+  await page.getByLabel("Password", { exact: true }).fill("My strong Passphrase!42");
   await page.getByLabel("Confirm password").fill("different-password");
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Create demo workspace" }).click();
   await expect(page.getByText("Passwords must match.")).toBeVisible();
-  await page.getByLabel("Confirm password").fill("example-password");
+  await page.getByLabel("Confirm password").fill("My strong Passphrase!42");
   await page.getByRole("button", { name: "Create demo workspace" }).click();
   await expect(page).toHaveURL(/\/app\/dashboard$/);
   await expect(page.getByRole("heading", { name: "Storage overview" })).toBeVisible();
   const saved = await page.evaluate(() => localStorage.getItem("guardrail-frontend-demo-v1"));
-  expect(saved).not.toContain("example-password");
+  expect(saved).not.toContain("My strong Passphrase!42");
   await page.goto("/forgot-password");
   await page.getByLabel("Email address").fill("demo@example.com");
   await page.getByRole("button", { name: "Preview reset request" }).click();
