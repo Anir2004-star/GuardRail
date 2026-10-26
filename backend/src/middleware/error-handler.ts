@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler } from "express";
+import { InputValidationError } from "../validation/auth.validation.js";
 
 type HttpParserError = Error & {
   status?: number;
@@ -11,6 +12,17 @@ function isParserError(error: unknown): error is HttpParserError {
 }
 
 export const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+  if (error instanceof InputValidationError) {
+    response.set("Cache-Control", "no-store").status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: error.message,
+        fields: error.fields,
+      },
+    });
+    return;
+  }
+
   if (isParserError(error) && (error.type === "entity.parse.failed" || error.status === 400 && "body" in error)) {
     response.status(400).json({
       error: {
