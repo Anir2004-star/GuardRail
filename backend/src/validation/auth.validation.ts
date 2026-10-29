@@ -1,11 +1,18 @@
 import { z } from "zod";
 
+function hasNoControlCharacters(value: string): boolean {
+  return Array.from(value).every((character) => {
+    const code = character.charCodeAt(0);
+    return code > 0x1f && code !== 0x7f;
+  });
+}
+
 function requiredName(label: string) {
   return z.string({ error: `Enter your ${label}.` })
     .trim()
     .min(1, `Enter your ${label}.`)
     .max(60, `Use no more than 60 characters for your ${label}.`)
-    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "Names must not contain control characters.");
+    .refine(hasNoControlCharacters, "Names must not contain control characters.");
 }
 
 export const emailSchema = z.string({ error: "Enter a valid email address." })
@@ -31,7 +38,7 @@ export const registrationSchema = z.strictObject({
   middleName: z.string({ error: "Middle name must be text." })
     .trim()
     .max(60, "Use no more than 60 characters for your middle name.")
-    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "Names must not contain control characters.")
+    .refine(hasNoControlCharacters, "Names must not contain control characters.")
     .optional(),
   lastName: requiredName("last name"),
   email: emailSchema,

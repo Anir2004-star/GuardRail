@@ -18,7 +18,8 @@
     "db:studio": "prisma studio",
     "db:verify": "tsx scripts/verify-database.ts",
     "db:verify:auth-schema": "node scripts/verify-auth-schema.mjs",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:registration": "npm run build && node scripts/test-registration.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

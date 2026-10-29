@@ -318,7 +318,58 @@ reset an unrelated database. Prisma development migrations additionally need
 permission to create a shadow database (or an explicitly configured dedicated
 shadow database); applying committed migrations via `db:deploy` does not.
 
-## References
+## Registration service (step 7)
+
+`src/services/auth.service.ts` exports `registerUser(input)`. It validates first,
+middle (optional), and last names, accepts any valid email provider, and normalizes
+email whitespace/case without Gmail-specific rewriting. Passwords must have at
+least 15 Unicode characters, at most 72 UTF-8 bytes, an ASCII uppercase letter,
+an ASCII lowercase letter, a number and a special character. Passwords, including
+their leading/trailing spaces, are passed unchanged to asynchronous bcrypt.
+
+The service hashes using BCRYPT_ROUNDS (default 12), stores only the hash, saves
+the separate names and combined display name, and selects only safe profile
+fields for its result. It creates no refresh session or access token. Calling
+this service does not automatically log anyone in. Names can repeat across
+different email accounts, and bcrypt independently salts each password hash.
+
+The `normalize_user_emails` migration checks for normalization collisions before
+updating existing emails, then adds a normalized-email check. The existing unique
+email constraint remains authoritative for simultaneous requests. The central
+handler recognizes both Prisma target fields and the Prisma 7 pg adapter's
+unique-index metadata, returning HTTP 409 with EMAIL_ALREADY_REGISTERED.
+This message reveals account existence; email verification is not yet built.
+Other database errors remain generic and their values are not logged.
+
+The registration service is ready, but the public `/api/v1/auth/register` route
+and its origin checks/rate limiting have **not** been added in this step. The
+frontend signup screen still demonstrates local profile changes.
+
+Run from `backend` with the local PostgreSQL service healthy:
+
+```cmd
+npm run db:deploy
+npm run db:generate
+npm run typecheck
+npm test
+npm run test:registration
+```
+
+`test:registration` builds the backend, creates a randomly named local test
+database, applies all committed migrations using Prisma Migrate, and runs
+`tests/integration/registration.test.mjs` in a separate process. Guards reject a
+missing test URL or development database target. Only the generated test database
+is dropped afterward; no development records are inserted or deleted. The local
+role needs CREATE DATABASE permission. Test HTTP endpoints bind to an ephemeral
+loopback port inside the test process only.
+
+Integration tests cover real bcrypt storage and comparison, safe returned fields,
+normalized duplicates, concurrent duplicates, optional middle names, repeated
+names with distinct emails, rejection of invalid input and the database email
+normalization constraint. They report the measured cost of registration at the
+configured bcrypt work factor; deployment load testing is still needed.
+
+## Reference links
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)
 - [Generated Prisma Client](https://www.prisma.io/docs/orm/v7/prisma-schema/overview/generators)

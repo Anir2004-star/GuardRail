@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import console from "node:console";
 import { once } from "node:events";
 import test from "node:test";
 import express from "express";
@@ -28,7 +30,8 @@ test("names and emails are normalized, all providers allowed, passwords remain u
 });
 
 test("first and last names are required; middle name is optional; names support Unicode", () => {
-  const { middleName: _middle, ...withoutMiddle } = valid;
+  const withoutMiddle = { ...valid };
+  delete withoutMiddle.middleName;
   assert.equal(parseRegistrationInput(withoutMiddle).middleName, undefined);
   assert.equal(parseRegistrationInput({ ...valid, middleName: "   " }).middleName, "");
   assert.equal(parseRegistrationInput({ ...valid, firstName: "李", lastName: "O’Connor-Smith" }).firstName, "李");
@@ -96,7 +99,7 @@ test("middleware returns safe HTTP 400 field errors, and passes only normalized 
   const url = `http://127.0.0.1:${server.address().port}/register`;
   try {
     const invalidPassword = "PRIVATE_INVALID_PASSWORD";
-    const response = await fetch(url, {
+    const response = await globalThis.fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...valid, email: "invalid", password: invalidPassword }),
     });
@@ -110,7 +113,7 @@ test("middleware returns safe HTTP 400 field errors, and passes only normalized 
     assert.equal(accepted, undefined);
     assert.equal(logger.mock.calls.length, 0);
 
-    const success = await fetch(url, {
+    const success = await globalThis.fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...valid, firstName: " Anirban ", email: " Person@Example.org " }),
     });
