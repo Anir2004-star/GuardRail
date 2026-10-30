@@ -341,9 +341,16 @@ unique-index metadata, returning HTTP 409 with EMAIL_ALREADY_REGISTERED.
 This message reveals account existence; email verification is not yet built.
 Other database errors remain generic and their values are not logged.
 
-The registration service is ready, but the public `/api/v1/auth/register` route
-and its origin checks/rate limiting have **not** been added in this step. The
-frontend signup screen still demonstrates local profile changes.
+The public `POST /api/v1/auth/register` route is now connected in `src/app.ts`.
+It requires an Origin exactly matching FRONTEND_ORIGIN, allows ten attempts per
+client IP per fifteen minutes, validates input, then invokes the registration
+controller and service. Missing/unexpected origins return 403; exceeding the
+limit returns 429 with Retry-After. Validation failures count toward the limit.
+The in-memory limiter is suitable for this single-process local setup; multiple
+instances need a shared store, and trusted proxies must be configured explicitly
+when deploying. Auth responses are not cached. Registration issues no login
+tokens or cookies; the frontend signup screen still demonstrates local profile
+changes and has not yet been connected to this API.
 
 Run from `backend` with the local PostgreSQL service healthy:
 
@@ -361,12 +368,16 @@ database, applies all committed migrations using Prisma Migrate, and runs
 missing test URL or development database target. Only the generated test database
 is dropped afterward; no development records are inserted or deleted. The local
 role needs CREATE DATABASE permission. Test HTTP endpoints bind to an ephemeral
-loopback port inside the test process only.
+loopback port inside the test process only. The integration suite uses the real
+application, router, controller, origin middleware and rate limiter; it no longer
+substitutes a test-only registration route.
 
 Integration tests cover real bcrypt storage and comparison, safe returned fields,
 normalized duplicates, concurrent duplicates, optional middle names, repeated
 names with distinct emails, rejection of invalid input and the database email
-normalization constraint. They report the measured cost of registration at the
+normalization constraint. It also checks missing/incorrect Origin rejection,
+allowed CORS preflight, 429 throttling, and continuing health/readiness responses.
+It reports the measured cost of registration at the
 configured bcrypt work factor; deployment load testing is still needed.
 
 ## Reference links
