@@ -121,6 +121,14 @@ test("assistant clarification, protection rule, and organization stay review-fir
 });
 
 test("signup validates matching passwords and never stores a password", async ({ page }) => {
+  await page.route("**/api/v1/auth/register", async (route) => {
+    const headers = { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" };
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers });
+      return;
+    }
+    await route.fulfill({ status: 201, headers, json: { user: { id: "sample-user-id", email: "demo@example.com" } } });
+  });
   await page.goto("/signup");
   await page.getByLabel("First name", { exact: true }).fill("Frontend");
   await page.getByLabel("Last name", { exact: true }).fill("User");
@@ -128,14 +136,16 @@ test("signup validates matching passwords and never stores a password", async ({
   await page.getByLabel("Password", { exact: true }).fill("My strong Passphrase!42");
   await page.getByLabel("Confirm password").fill("different-password");
   await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Create demo workspace" }).click();
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
   await expect(page.getByText("Passwords must match.")).toBeVisible();
   await page.getByLabel("Confirm password").fill("My strong Passphrase!42");
-  await page.getByRole("button", { name: "Create demo workspace" }).click();
-  await expect(page).toHaveURL(/\/app\/dashboard$/);
-  await expect(page.getByRole("heading", { name: "Storage overview" })).toBeVisible();
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  await expect(page.getByRole("status")).toContainText("Account created. Please sign in.");
+  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Confirm password")).toHaveValue("");
   const saved = await page.evaluate(() => localStorage.getItem("guardrail-frontend-demo-v1"));
-  expect(saved).not.toContain("My strong Passphrase!42");
+  expect(saved ?? "").not.toContain("My strong Passphrase!42");
   await page.goto("/forgot-password");
   await page.getByLabel("Email address").fill("demo@example.com");
   await page.getByRole("button", { name: "Preview reset request" }).click();

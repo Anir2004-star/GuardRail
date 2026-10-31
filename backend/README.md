@@ -349,8 +349,9 @@ limit returns 429 with Retry-After. Validation failures count toward the limit.
 The in-memory limiter is suitable for this single-process local setup; multiple
 instances need a shared store, and trusted proxies must be configured explicitly
 when deploying. Auth responses are not cached. Registration issues no login
-tokens or cookies; the frontend signup screen still demonstrates local profile
-changes and has not yet been connected to this API.
+tokens or cookies. The frontend signup screen now calls this API, displays field
+and request errors, clears passwords after success and offers a sign-in link.
+Real sign-in and password recovery remain unimplemented demo flows.
 
 Run from `backend` with the local PostgreSQL service healthy:
 
