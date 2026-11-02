@@ -14,9 +14,9 @@ export const app = express();
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({
-  credentials: false,
+  credentials: true,
   origin(requestOrigin, callback) {
-    if (!requestOrigin || requestOrigin === env.FRONTEND_ORIGIN) {
+    if (requestOrigin === env.FRONTEND_ORIGIN) {
       callback(null, true);
       return;
     }

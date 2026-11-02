@@ -46,6 +46,17 @@ export const registrationSchema = z.strictObject({
 });
 
 export type RegistrationInput = z.infer<typeof registrationSchema>;
+
+// Login checks the exact existing password, not today's registration policy.
+// Reject oversized inputs rather than letting bcrypt truncate them silently.
+export const loginSchema = z.strictObject({
+  email: emailSchema,
+  password: z.string({ error: "Enter a password." })
+    .min(1, "Enter a password.")
+    .refine((password) => Buffer.byteLength(password, "utf8") <= 72, "Use no more than 72 UTF-8 bytes."),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
 export type ValidationFields = Record<string, string[]>;
 
 // Only sanitized messages and known field names are retained, never input values
@@ -57,20 +68,35 @@ export class InputValidationError extends Error {
   }
 }
 
-export function parseRegistrationInput(input: unknown): RegistrationInput {
-  const result = registrationSchema.safeParse(input);
-  if (result.success) return result.data;
-
+function inputValidationError(error: z.ZodError, allowedNames: string[], bodyMessage: string): InputValidationError {
   const fields: ValidationFields = {};
-  const allowedFields = new Set(["firstName", "middleName", "lastName", "email", "password"]);
-  for (const issue of result.error.issues) {
+  const allowedFields = new Set(allowedNames);
+  for (const issue of error.issues) {
     const field = issue.path[0];
     const key = typeof field === "string" && allowedFields.has(field) ? field : "body";
-    const message = key === "body"
-      ? "Send a JSON object containing only firstName, optional middleName, lastName, email, and password."
-      : issue.message;
+    const message = key === "body" ? bodyMessage : issue.message;
     const messages = fields[key] ?? (fields[key] = []);
     if (!messages.includes(message)) messages.push(message);
   }
-  throw new InputValidationError(fields);
+  return new InputValidationError(fields);
+}
+
+export function parseRegistrationInput(input: unknown): RegistrationInput {
+  const result = registrationSchema.safeParse(input);
+  if (result.success) return result.data;
+  throw inputValidationError(
+    result.error,
+    ["firstName", "middleName", "lastName", "email", "password"],
+    "Send a JSON object containing only firstName, optional middleName, lastName, email, and password.",
+  );
+}
+
+export function parseLoginInput(input: unknown): LoginInput {
+  const result = loginSchema.safeParse(input);
+  if (result.success) return result.data;
+  throw inputValidationError(
+    result.error,
+    ["email", "password"],
+    "Send a JSON object containing only email and password.",
+  );
 }

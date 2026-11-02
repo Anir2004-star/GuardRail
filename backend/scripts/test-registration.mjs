@@ -25,6 +25,9 @@ const backendDirectory = fileURLToPath(new URL("../", import.meta.url));
 const childEnvironment = {
   ...process.env,
   NODE_ENV: "test",
+  JWT_ACCESS_SECRET: randomBytes(32).toString("hex"),
+  JWT_ISSUER: "guardrail-test-api",
+  JWT_AUDIENCE: "guardrail-test-web",
   DATABASE_URL: testUrl.toString(),
   GUARDRAIL_REGISTRATION_TEST_DATABASE: databaseName,
   GUARDRAIL_DEVELOPMENT_DATABASE: originalUrl.pathname.slice(1),
@@ -39,7 +42,7 @@ try {
   ], { cwd: backendDirectory, env: childEnvironment, timeout: 60_000 });
   console.log("PASS: committed migrations applied to a new isolated test database.");
   const result = await execute(process.execPath, [
-    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs",
+    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs", "tests/integration/login-credentials.test.mjs", "tests/integration/refresh-sessions.test.mjs", "tests/integration/login-route.test.mjs",
   ], { cwd: backendDirectory, env: childEnvironment, timeout: 120_000 });
   console.log(result.stdout.trim());
 } catch (error) {

@@ -381,9 +381,204 @@ allowed CORS preflight, 429 throttling, and continuing health/readiness response
 It reports the measured cost of registration at the
 configured bcrypt work factor; deployment load testing is still needed.
 
-## Reference links
+## Login preparation - step 1: input validation
+
+`src/validation/auth.validation.ts` now exports `loginSchema`, `LoginInput`, and
+`parseLoginInput`. `src/middleware/validate-login.ts` passes normalized valid input
+to the next handler or sends a sanitized InputValidationError to the central
+HTTP 400 handler. Responses include Cache-Control: no-store.
+
+Login accepts only email and password. Email uses the same trim/lowercase policy
+as signup, with no Gmail-specific dot/plus rewriting. Password must be a nonempty
+string no longer than 72 UTF-8 bytes, and is never trimmed, lowercased or Unicode
+normalized. Login does not reapply signup's length/composition requirements: its
+job will be to compare the exact existing password against the stored bcrypt
+hash, including accounts created under an older policy.
+
+These checks validate the input format only. They do not establish whether an
+account exists or whether its password is correct. No public login endpoint,
+tokens, cookies or sessions are added in this step. The credential verification
+service described below uses this parser too.
+
+Run `npm run typecheck` and `npm test` from the backend folder. Login validation
+tests use no real database and verify malformed inputs, multibyte password
+boundaries, unchanged passwords and safe HTTP 400 responses.
+
+## Login preparation - step 2: credential verification
+
+`verifyLoginCredentials(input)` in `src/services/auth.service.ts` validates the
+input, selects the registered account by normalized email, and uses asynchronous
+`bcrypt.compare()` against its stored hash. It preserves password whitespace and
+case. Unknown emails, wrong passwords and accounts with a null/empty password
+hash all fail with the same InvalidCredentialsError. Deleted users also fail.
+
+A dummy bcrypt hash is precomputed once per process at the configured work
+factor. Unknown and passwordless accounts still perform a bcrypt comparison to
+reduce obvious timing differences. This is not a guarantee of identical response
+times and does not replace the public route's login rate limiting (step 7).
+
+Only explicitly selected safe profile fields are returned on success. The
+password and hash are never returned or logged. The central error handler maps
+InvalidCredentialsError to HTTP 401 with Cache-Control: no-store:
+
+```json
+{"error":{"code":"INVALID_CREDENTIALS","message":"Email or password is incorrect"}}
+```
+
+The credential verifier itself creates no tokens or sessions. Step 7 connects
+the public login route. Step 4 below adds a separate internal helper for issuing
+access tokens after verification; step 5 adds refresh-session creation. Cookies
+and frontend sign-in follow in later steps.
+
+Run `npm run test:registration` to test both registration and credential
+verification in an automatically created temporary database. The runner applies
+all migrations, executes the guarded integration test files, and removes only
+its own generated database afterward. Credential tests cover exact passwords,
+safe profiles, uniform failure responses, cached dummy comparisons, passwordless
+and deleted accounts, and rejection of another account's password.
+
+## Login preparation - step 4: access tokens
+
+`src/auth/access-tokens.ts` uses jose 6 to create and verify access JWTs.
+`createAccessToken(userId)` returns accessToken, tokenType Bearer and expiresIn.
+The signing key is decoded from the private hexadecimal JWT_ACCESS_SECRET; it
+is never sent to the browser or logged. Only HS256 is accepted, with the explicit
+access-token type `at+jwt`. Tokens contain sub (user UUID), configured iss/aud,
+integer iat/exp timestamps, and a fresh jti UUID. No profile data, password,
+password hash, refresh token or file content is included. JWTs are signed, not
+encrypted, so their payload must not contain secrets.
+
+Expiry uses ACCESS_TOKEN_TTL_SECONDS (default 900 seconds / 15 minutes). Each
+token gets a distinct ID even if issued for the same user in the same second.
+`verifyAccessToken` checks the signature with an explicit algorithm allowlist,
+token type, issuer, audience, required claims, UUIDs, expiry, issue time and
+maximum configured lifetime. It never uses decode-only data as authentication.
+Failure raises a generic InvalidAccessTokenError, mapped to a no-store HTTP 401
+without raw tokens or library error details. The verifier returns only userId,
+issuedAt, expiresAt and tokenId; it does not check account existence or access
+permissions. Protected-route middleware must do that in a later step.
+
+`createLoginAccess(input)` in the auth service first verifies credentials, then
+returns the safe user and access-token bundle. It is an internal building block,
+not a public login endpoint. Registration still does not automatically log in.
+Step 5 below adds refresh sessions and step 6 adds cookies. Profile routes and
+the real frontend login remain unfinished. Access tokens are returned in JSON and should be held in frontend
+memory, never recommended for localStorage/sessionStorage.
+
+Run `npm test` for independent signature/claim tests with a randomly generated
+test key. Run `npm run test:registration` for credential-to-token integration
+tests in the runner's isolated temporary database; the runner also generates a
+separate test signing key and test issuer/audience instead of using local secrets.
+Tests cover altered/wrong signatures, disallowed/unsigned algorithms, expired or
+future-issued tokens, missing or malformed claims, wrong issuer/audience/type,
+and token creation only after correct credentials.
+
+## Login preparation - step 5: refresh-session creation
+
+`createLoginSession(input)` in `src/services/auth.service.ts` verifies the password
+before opening a transaction. It then locks and rereads the user row, rejecting
+credentials if the email or password hash changed during verification. Access
+token creation and refresh-session insertion must both succeed before returning.
+
+`src/auth/refresh-tokens.ts` generates an opaque token using 32 cryptographically
+random bytes, encoded as base64url. `src/services/refresh-session.service.ts`
+stores only its SHA-256 hash in the existing RefreshSession table. Unlike human
+passwords, these random tokens have enough entropy for a fast lookup hash.
+Each login starts its own session family, with a fixed expiry determined by
+REFRESH_SESSION_TTL_SECONDS (default 604800 seconds / seven days). Existing
+sessions are not extended. No schema change or migration is needed.
+
+The internal result separates `.body` (safe user and access-token bundle) from
+`.refresh` (server-only session metadata and secret). The step 6 login controller
+sends only `.body` as JSON and uses `.refresh.token.value` to set an HttpOnly cookie.
+The secret wrapper also omits its value from JSON and normal object inspection.
+Do not explicitly log or serialize the raw `.value`.
+
+Step 5 alone does not expose a login route, set cookies, refresh/rotate tokens,
+or implement logout. Session creation alone does not automatically renew an
+expired access token; those flows come in later steps.
+
+`npm test` checks random token format, hashing, malformed input and secret
+serialization. `npm run test:registration` additionally tests successful login
+sessions, independent logins, rejected credentials without session insertion,
+and transaction rollback in the runner's temporary database.
+
+## Login preparation - step 6: refresh cookie and login controller
+
+`src/auth/refresh-cookie.ts` adds `setRefreshCookie`, `clearRefreshCookie`, and a
+shared cookie policy. The cookie is named `guardrail_refresh`, uses HttpOnly,
+SameSite=Lax, Path=/api/v1/auth, and no Domain attribute (host-only). Secure is
+enabled in production; development/test support local HTTP. Expiry comes directly
+from the saved session's expiresAt; no rolling Max-Age extends it. Invalid tokens
+and non-future dates are rejected before writing headers. Cookie responses use
+Cache-Control: no-store. Clearing uses identical scope/security options, with no
+caller-supplied expires/maxAge, so Express expires the matching cookie.
+
+`loginController` in `src/controllers/auth.controller.ts` awaits successful session
+creation before setting a cookie, then returns HTTP 200 with only the safe profile
+and access-token bundle. Failed validation/credentials produce no cookie. The
+controller is tested through a temporary test route with origin and validation
+middleware, and through the public route added in step 7.
+
+Step 7 adds origin validation, a login rate limit and credentialed CORS for the
+exact FRONTEND_ORIGIN. Frontend requests must use `credentials: "include"` when
+frontend login is connected. Frontend login, refresh-token rotation and logout
+remain pending. The cookie policy assumes the UI and API are
+same-site (localhost on different ports works); unrelated production domains
+require a separate cookie/CSRF deployment design. HttpOnly prevents JavaScript
+from reading the refresh cookie; it does not replace origin/CSRF checks.
+
+Run `npm test` for actual set/clear HTTP headers, production cookie policy,
+expiry, and invalid-input checks. `npm run test:registration` also verifies the
+real controller against the temporary database, including cookie/hash matching,
+safe JSON, failed login without a cookie/session, and origin rejection.
+
+## Login - step 7: public endpoint
+
+`POST /api/v1/auth/login` is mounted in `src/routes/auth.routes.ts` with this order:
+requireAuthOrigin -> loginRateLimit -> validateLogin -> loginController. Requests
+must include the exact configured FRONTEND_ORIGIN as their Origin header. Missing
+or incorrect origins return 403 before consuming login quota or verifying passwords.
+
+`loginRateLimit` in `src/middleware/auth-rate-limit.ts` permits 10 requests per IP
+within 15 minutes, using a separate store from registration. Successful logins,
+failed credentials and invalid parsed input all count. The eleventh request gets
+429, Retry-After and rate-limit headers, with no session/cookie creation. Origin
+rejections and CORS preflights do not consume this allowance. Malformed JSON is
+rejected by the app's body parser before route middleware. The default in-memory
+store is per process and resets on restart; multiple instances would need a shared
+store. Express trust proxy remains disabled, so forwarded headers do not determine
+the limiter key; configure trusted proxies deliberately when deploying behind one.
+
+`src/app.ts` enables credentialed CORS only for the exact FRONTEND_ORIGIN. It never
+uses a wildcard origin and sends no CORS permission headers for absent or rejected
+origins. The separate origin middleware enforces authentication requests; CORS
+headers alone do not block non-browser clients.
+
+Valid credentials return 200 with user, accessToken, tokenType and expiresIn, and
+the HttpOnly refresh cookie. Invalid input returns sanitized 400 errors; unknown
+emails, wrong passwords and passwordless accounts share the same safe 401 response.
+Login response bodies and cookie responses use Cache-Control: no-store.
+
+The frontend sign-in form is not connected yet. To exercise the endpoint from an
+HTTP client, send JSON containing only email and password to
+`http://localhost:4000/api/v1/auth/login`, with Content-Type: application/json and
+Origin matching FRONTEND_ORIGIN (normally http://localhost:3000). Use a previously
+registered account. Do not paste real passwords, cookies or tokens into logs.
+
+`tests/integration/login-route.test.mjs` exercises the real application, router,
+limiter, controller and database. It checks success, safe failures, cookie/session
+matching, exact-origin credentialed CORS, preflights, the exact 10-request allowance,
+signup independence and health/readiness after login throttling. The existing
+`npm run test:registration` runner includes this suite in its isolated temporary DB.
+
+## Documentation links
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)
 - [Generated Prisma Client](https://www.prisma.io/docs/orm/v7/prisma-schema/overview/generators)
 - [node-postgres connection/query timeouts](https://node-postgres.com/apis/client)
 - [Official PostgreSQL container](https://hub.docker.com/_/postgres)
+- [jose signing](https://github.com/panva/jose/blob/main/docs/jwt/sign/classes/SignJWT.md)
+- [jose verification](https://github.com/panva/jose/blob/main/docs/jwt/verify/functions/jwtVerify.md)
+- [Express CORS configuration](https://expressjs.com/en/resources/middleware/cors/)
+- [express-rate-limit configuration](https://express-rate-limit.mintlify.app/reference/configuration)
