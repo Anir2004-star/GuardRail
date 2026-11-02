@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { loginController, registerController } from "../controllers/auth.controller.js";
+import { loginController, refreshController, registerController } from "../controllers/auth.controller.js";
 import { requireAuthOrigin } from "../middleware/require-auth-origin.js";
-import { loginRateLimit, registrationRateLimit } from "../middleware/auth-rate-limit.js";
+import { loginRateLimit, refreshRateLimit, registrationRateLimit } from "../middleware/auth-rate-limit.js";
 import { validateRegistration } from "../middleware/validate-registration.js";
 import { validateLogin } from "../middleware/validate-login.js";
 
@@ -22,3 +22,5 @@ authRouter.post(
   validateLogin,
   loginController
 );
+
+authRouter.post("/refresh", requireAuthOrigin, refreshRateLimit, refreshController);

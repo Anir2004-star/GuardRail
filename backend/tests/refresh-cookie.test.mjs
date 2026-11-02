@@ -8,9 +8,25 @@ import express from "express";
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = "postgresql://test:unused@localhost:1/guardrail_test";
 process.env.JWT_ACCESS_SECRET = randomBytes(32).toString("hex");
-const { REFRESH_COOKIE_NAME, refreshCookieOptions, setRefreshCookie, clearRefreshCookie } = await import("../dist/auth/refresh-cookie.js");
+const { REFRESH_COOKIE_NAME, refreshCookieOptions, setRefreshCookie, clearRefreshCookie, readRefreshCookie } = await import("../dist/auth/refresh-cookie.js");
 const { generateRefreshToken } = await import("../dist/auth/refresh-tokens.js");
 const token = generateRefreshToken().value;
+
+test("refresh reads only the exact cookie name among unrelated cookies", () => {
+  assert.equal(readRefreshCookie({ headers: { cookie: `theme=dark; ${REFRESH_COOKIE_NAME}=${token}; other=a=b` } }), token);
+  assert.equal(readRefreshCookie({ headers: { cookie: ` ${REFRESH_COOKIE_NAME} = ${token} ` } }), token);
+});
+
+test("missing, duplicate, malformed and oversized refresh cookies are rejected", () => {
+  for (const cookie of [
+    undefined, "", `other=${token}`, `${REFRESH_COOKIE_NAME}_extra=${token}`,
+    `${REFRESH_COOKIE_NAME}=`, `${REFRESH_COOKIE_NAME}=invalid`,
+    `${REFRESH_COOKIE_NAME}=${token}; ${REFRESH_COOKIE_NAME}=${token}`,
+    `${REFRESH_COOKIE_NAME}=; ${REFRESH_COOKIE_NAME}=${token}`,
+    `${REFRESH_COOKIE_NAME}="${token}"`, `${REFRESH_COOKIE_NAME}=%41${token.slice(1)}`,
+    `other=${"x".repeat(8192)}; ${REFRESH_COOKIE_NAME}=${token}`,
+  ]) assert.throws(() => readRefreshCookie({ headers: { cookie } }), /Refresh session is invalid/);
+});
 
 test("cookie policy restricts JavaScript, path and host; production requires HTTPS", () => {
   for (const environment of ["test", "development", "production"]) {

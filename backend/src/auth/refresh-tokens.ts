@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
 
+export type RefreshToken = Readonly<{
+  value: string;
+  toJSON: () => undefined;
+}>;
+
 // Deliberate server-only access through .value. Private fields do not appear in
 // normal object inspection, and JSON serialization omits this entire value.
 class RefreshTokenSecret {
@@ -16,7 +21,7 @@ class RefreshTokenSecret {
   toJSON(): undefined { return undefined; }
 }
 
-export function generateRefreshToken() {
+export function generateRefreshToken(): RefreshToken {
   return new RefreshTokenSecret(randomBytes(32).toString("base64url"));
 }
 

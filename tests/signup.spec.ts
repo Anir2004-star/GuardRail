@@ -67,7 +67,7 @@ test("signup sends only registration fields, shows pending/success and never sav
   expect(postCount).toBe(1);
   await page.getByRole("link", { name: "Go to sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByText("Explore the demo. Real sign-in is not connected yet.")).toBeVisible();
+  await expect(page.getByText("Sign in with your registered email and password.")).toBeVisible();
 });
 
 test("signup maps backend validation errors to fields and supports correcting them", async ({ page }) => {

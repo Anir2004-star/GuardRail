@@ -8,8 +8,8 @@ The repository contains a complete frontend demo:
 
 - responsive public landing page;
 - signup connected to the real Express registration API;
-- sign-in and password reset preview forms;
-- authenticated application shell with desktop and mobile navigation;
+- sign-in connected to the real Express login API, plus a password reset preview;
+- application shell with desktop and mobile navigation;
 - storage usage overview backed by Recharts;
 - search, sorting, filters, item previews, folder organization, and item protection;
 - Gmail and Drive connection previews and cancellable sample scans;
@@ -20,7 +20,7 @@ The repository contains a complete frontend demo:
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Signup does not log the user in. Sign-in and password recovery remain explicitly labelled demos, and reset requests do not send email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
+All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Signup does not log the user in. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery remains a preview and sends no email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -64,7 +64,43 @@ Confirm password and the privacy checkbox are checked on screen. A pending
 request disables submission; field errors, duplicates, rate limiting and network
 errors are shown without exposing server details. Success clears both password
 inputs and offers a sign-in link, without issuing a token or navigating to the
-demo dashboard. Real sign-in must still be implemented.
+demo dashboard. Sign in separately at `/login`.
+
+## Real sign-in (step 8)
+
+Start PostgreSQL, the backend and the frontend using the setup above, register
+an account, then visit `http://localhost:3000/login`. Use its exact password,
+including spaces and case. Login normalizes email but leaves passwords unchanged;
+it does not reapply signup's password composition rules.
+
+`lib/login-api.ts` sends only email and password to POST /api/v1/auth/login with
+credentials: include, no-store caching, rejected redirects and a 15-second timeout.
+It checks the success response shape, selects safe user fields and maps 400, 401,
+403, 429, server errors and connection failures to local messages. Raw backend
+errors, passwords and tokens are never displayed or logged. The API base URL is
+the same NEXT_PUBLIC_API_URL used for signup. FRONTEND_ORIGIN must exactly match
+the frontend address; use localhost consistently for both services.
+
+`components/auth-screen.tsx` replaces demo sign-in with this request. Submission
+is disabled while pending; failures stay on the form and allow retry. Success
+clears the password field, saves the validated session in `components/auth-store.ts`
+and uses client navigation to replace the page with /app/dashboard. The Zustand
+auth store has no persistence or devtools middleware: passwords and access tokens
+are never written to localStorage/sessionStorage or demo settings. The backend
+refresh token is stored only in its HttpOnly cookie; frontend code cannot read it.
+
+The sidebar shows the returned account name and labels storage content/actions
+as samples. Demo profile settings still edit only the sample profile. Returning
+to sign in or choosing the demo clears memory; neither action revokes the refresh
+session or removes its cookie. Real logout is a later milestone.
+
+The backend now exposes POST /api/v1/auth/refresh with token rotation and reuse
+detection (step 9; see backend/README.md). Frontend token renewal, cookie-based
+session restoration, protected API calls and route guards remain pending. A full reload clears frontend authentication state even
+though the refresh cookie may remain; it shows the demo identity again. Direct
+access to the sample dashboard is still available. The stored expiresAt records
+the access-token deadline for future authenticated requests; this milestone does
+not refresh an expired token or fetch real storage data.
 
 ## Verification
 
@@ -83,6 +119,12 @@ create development accounts or require a running backend. They verify the reques
 fields, loading/error/success states, cleared passwords and unchanged browser
 storage. The backend's `npm run test:registration` separately tests the connected
 API and PostgreSQL using an isolated temporary database.
+
+`tests/login.spec.ts` similarly uses controlled API responses to check exact
+password handling, normalized email, pending/error/retry states, credentialed
+cookie requests, safe response validation, dashboard identity, unchanged secret
+storage and loss of in-memory identity after a full reload. These browser tests
+do not create accounts in the development database.
 
 ## Safety invariant
 

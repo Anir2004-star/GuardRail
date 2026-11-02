@@ -427,8 +427,8 @@ InvalidCredentialsError to HTTP 401 with Cache-Control: no-store:
 
 The credential verifier itself creates no tokens or sessions. Step 7 connects
 the public login route. Step 4 below adds a separate internal helper for issuing
-access tokens after verification; step 5 adds refresh-session creation. Cookies
-and frontend sign-in follow in later steps.
+access tokens after verification; step 5 adds refresh-session creation, step 6
+adds cookies and frontend step 8 connects sign-in.
 
 Run `npm run test:registration` to test both registration and credential
 verification in an automatically created temporary database. The runner applies
@@ -461,8 +461,8 @@ permissions. Protected-route middleware must do that in a later step.
 `createLoginAccess(input)` in the auth service first verifies credentials, then
 returns the safe user and access-token bundle. It is an internal building block,
 not a public login endpoint. Registration still does not automatically log in.
-Step 5 below adds refresh sessions and step 6 adds cookies. Profile routes and
-the real frontend login remain unfinished. Access tokens are returned in JSON and should be held in frontend
+Step 5 below adds refresh sessions and step 6 adds cookies. Profile routes remain
+unfinished. Frontend step 8 connects real sign-in. Access tokens are returned in JSON and held in frontend
 memory, never recommended for localStorage/sessionStorage.
 
 Run `npm test` for independent signature/claim tests with a randomly generated
@@ -521,8 +521,8 @@ controller is tested through a temporary test route with origin and validation
 middleware, and through the public route added in step 7.
 
 Step 7 adds origin validation, a login rate limit and credentialed CORS for the
-exact FRONTEND_ORIGIN. Frontend requests must use `credentials: "include"` when
-frontend login is connected. Frontend login, refresh-token rotation and logout
+exact FRONTEND_ORIGIN. Frontend step 8 uses `credentials: "include"` for login.
+Step 9 adds backend refresh-token rotation. Frontend session restoration and logout
 remain pending. The cookie policy assumes the UI and API are
 same-site (localhost on different ports works); unrelated production domains
 require a separate cookie/CSRF deployment design. HttpOnly prevents JavaScript
@@ -560,8 +560,8 @@ the HttpOnly refresh cookie. Invalid input returns sanitized 400 errors; unknown
 emails, wrong passwords and passwordless accounts share the same safe 401 response.
 Login response bodies and cookie responses use Cache-Control: no-store.
 
-The frontend sign-in form is not connected yet. To exercise the endpoint from an
-HTTP client, send JSON containing only email and password to
+The frontend sign-in form now calls this endpoint (frontend step 8; see the root
+README). To exercise the endpoint from an HTTP client, send JSON containing only email and password to
 `http://localhost:4000/api/v1/auth/login`, with Content-Type: application/json and
 Origin matching FRONTEND_ORIGIN (normally http://localhost:3000). Use a previously
 registered account. Do not paste real passwords, cookies or tokens into logs.
@@ -571,6 +571,62 @@ limiter, controller and database. It checks success, safe failures, cookie/sessi
 matching, exact-origin credentialed CORS, preflights, the exact 10-request allowance,
 signup independence and health/readiness after login throttling. The existing
 `npm run test:registration` runner includes this suite in its isolated temporary DB.
+
+## Refresh - step 9: rotation and reuse detection
+
+`POST /api/v1/auth/refresh` uses requireAuthOrigin -> refreshRateLimit ->
+refreshController. It reads only the `guardrail_refresh` HttpOnly cookie, never a
+token from JSON, query parameters or Authorization headers. The origin must match
+FRONTEND_ORIGIN exactly. Clients use credentials: include and do not need an access
+token or password. Refresh has its own 30-requests-per-IP/15-minute allowance,
+separate from login/signup. All accepted-origin refresh attempts count. As with
+login, this is an in-memory, per-process limit.
+
+`readRefreshCookie` in `src/auth/refresh-cookie.ts` accepts only the exact cookie
+name and canonical token format. Missing, duplicate, malformed or oversized cookie
+headers fail with the same generic InvalidRefreshTokenError. No cookie-parser
+dependency is needed. Cookie headers are limited to 8192 characters.
+
+`rotateRefreshSession` in `src/services/refresh-session.service.ts` hashes the
+token, identifies its user, locks that user row, and rereads the session inside
+a shared-client transaction. This user-level lock serializes rotations across
+all of that user's families and uses the same lock order as login. Expired,
+unknown, revoked or deleted-user sessions cannot issue tokens.
+
+An active session creates a new random token and hash row with the same user,
+family and original absolute expiry. Its predecessor is marked revoked and linked
+to the replacement. Access-token signing and all database writes succeed or roll
+back together. HTTP 200 returns only user, accessToken, tokenType and expiresIn;
+the replacement refresh token is delivered only through the HttpOnly cookie.
+`src/auth/user-profile.ts` shares the explicit safe profile allowlist with login.
+No database migration is needed: the existing RefreshSession fields support this.
+
+Presenting a revoked/replaced token revokes every still-active member of its family.
+The transaction commits that revocation BEFORE raising the generic 401, so error
+handling cannot roll it back. Other login families remain usable. Every invalid
+refresh response clears the cookie with matching scope and uses no-store. Origin
+rejections (403), throttling (429) and internal errors (500) do not clear it. A
+failed signing operation rolls back all rotation writes and preserves the current
+token. Invalid responses never reveal session IDs, raw tokens or database details.
+
+Rotation is strict: two simultaneous requests with the same cookie trigger reuse
+detection, and their family ends up revoked even if one response returned 200.
+An old-token replay racing a descendant rotation cannot leave an active descendant.
+There is no grace window or automatic retry of a consumed token. The forthcoming
+frontend refresh flow must coordinate requests, including across tabs. A lost
+successful response may require a fresh sign-in. Existing access JWTs are not
+instantly revoked by family revocation; they expire normally, and future protected
+API middleware must validate them and check account permissions.
+
+The frontend still does not call this endpoint automatically. Session restoration,
+renewal scheduling, cross-tab coordination, route guards and logout remain later
+steps. The root README describes the current in-memory frontend session behavior.
+
+`npm test` covers cookie parsing and existing auth checks. `npm run test:registration`
+also runs `tests/integration/refresh-route.test.mjs` against an isolated temporary
+database: public login-to-refresh, multiple rotations and fixed expiry, uniform
+invalid cases, family reuse, both concurrency races, account deletion, signing
+failure rollback, origin/CORS checks and independent throttling/health checks.
 
 ## Documentation links
 
@@ -582,3 +638,5 @@ signup independence and health/readiness after login throttling. The existing
 - [jose verification](https://github.com/panva/jose/blob/main/docs/jwt/verify/functions/jwtVerify.md)
 - [Express CORS configuration](https://expressjs.com/en/resources/middleware/cors/)
 - [express-rate-limit configuration](https://express-rate-limit.mintlify.app/reference/configuration)
+- [Refresh token replay protection, RFC 9700 section 4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2)
+- [Prisma 7 interactive transactions](https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions)

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { useDemo } from "./demo-store";
 import { registerAccount } from "@/lib/registration-api";
+import { loginAccount } from "@/lib/login-api";
+import { useAuthSession } from "./auth-store";
 
 type Fields = {
   firstName: string;
@@ -31,14 +32,14 @@ function validateSignupPassword(value: string): true | string {
 
 export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const router = useRouter();
-  const state = useDemo();
+  const setSession = useAuthSession((state) => state.setSession);
+  const clearSession = useAuthSession((state) => state.clearSession);
   const [message, setMessage] = useState("");
   const [accountCreated, setAccountCreated] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const { register, handleSubmit, setError, resetField, formState: { errors, isSubmitting } } = useForm<Fields>({
     defaultValues: { firstName: "", middleName: "", lastName: "", email: "", password: "", confirm: "", terms: false },
   });
-
-  useEffect(() => { void useDemo.persist.rehydrate(); }, []);
 
   const signup = mode === "signup";
   const forgot = mode === "forgot";
@@ -86,9 +87,17 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
       setMessage("Account created. Please sign in.");
       return;
     }
-    // Sign-in still explores the demo; it does not authenticate a backend user.
-    state.saveSettings({ name: state.profile.name, email }, state.preferences);
-    router.push("/app/dashboard");
+    if (signedIn) return;
+    clearSession();
+    const result = await loginAccount({ email, password: data.password });
+    if (!result.ok) {
+      setError("root.server", { message: result.message });
+      return;
+    }
+    resetField("password");
+    setSession(result.session);
+    setSignedIn(true);
+    router.replace("/app/dashboard");
   });
 
   return (
@@ -98,9 +107,9 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
         <div className="auth-box">
           <Link className="brand" href="/">GUARDRAIL</Link>
           <div>
-            <span className="eyebrow">{signup ? "ACCOUNT REGISTRATION" : "FRONTEND DEMO"}</span>
+            <span className="eyebrow">{signup ? "ACCOUNT REGISTRATION" : forgot ? "RESET PREVIEW" : "ACCOUNT SIGN-IN"}</span>
             <h1>{title}</h1>
-            <p>{signup ? "Create a real account. Sign in separately after registration." : forgot ? "Preview the reset flow before backend authentication is connected." : "Explore the demo. Real sign-in is not connected yet."}</p>
+            <p>{signup ? "Create a real account. Sign in separately after registration." : forgot ? "Password recovery is not connected yet. No reset email will be sent." : "Sign in with your registered email and password."}</p>
           </div>
           <form onSubmit={submit} noValidate>
             {signup && <>
@@ -137,7 +146,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
               Password
               <input type="password" {...register("password", {
                 required: "Enter a password.",
-                validate: (value) => signup ? validateSignupPassword(value) : true,
+                validate: (value) => signup ? validateSignupPassword(value) : new TextEncoder().encode(value).length <= 72 || "Use no more than 72 UTF-8 bytes.",
               })} autoComplete={signup ? "new-password" : "current-password"} readOnly={signup && accountCreated} placeholder={signup ? "Create a strong passphrase" : "Enter your password"} aria-label="Password" aria-invalid={!!errors.password} aria-describedby={signup ? `password-help${errors.password ? " password-error" : ""}` : errors.password ? "password-error" : undefined} />
               {signup && <small id="password-help">Use at least 15 characters, including uppercase, lowercase, a number, and a special character. Maximum 72 UTF-8 bytes; spaces are allowed.</small>}
               {errors.password && <span id="password-error" className="field-error" role="alert">{errors.password.message}</span>}
@@ -154,14 +163,14 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
               </label>
               {errors.terms && <span id="terms-error" className="field-error" role="alert">{errors.terms.message}</span>}
             </>}
-            {mode === "login" && <div className="form-row"><span>Use demo details</span><Link href="/forgot-password">Forgot password?</Link></div>}
-            <button className="button auth-submit" type="submit" disabled={isSubmitting || (signup && accountCreated)}>{isSubmitting ? "Please wait..." : forgot ? "Preview reset request" : signup ? accountCreated ? "Account created" : "Create account" : "Enter demo workspace"}</button>
+            {mode === "login" && <div className="form-row"><span>Use your registered account</span><Link href="/forgot-password">Forgot password?</Link></div>}
+            <button className="button auth-submit" type="submit" disabled={isSubmitting || signedIn || (signup && accountCreated)}>{isSubmitting ? "Please wait..." : forgot ? "Preview reset request" : signup ? accountCreated ? "Account created" : "Create account" : signedIn ? "Signed in" : "Sign in"}</button>
             {errors.root?.server && <div className="field-error" role="alert">{errors.root.server.message}</div>}
             {message && <div className="feedback" role="status">{message}{signup && accountCreated && <> <Link href="/login">Go to sign in</Link></>}</div>}
           </form>
           <p className="auth-foot">{signup || forgot ? <Link href="/login">Back to sign in</Link> : <>New here? <Link href="/signup">Create an account</Link></>}</p>
-          <Link className="full-link" href="/app/dashboard">Explore without signing in →</Link>
-          <p className="muted-copy">{signup ? "Your password is sent to the backend and stored only as a hash. It is not saved in browser storage." : "Sign-in and password recovery are still demo flows. Passwords entered here are never saved or sent."}</p>
+          <Link className="full-link" href="/app/dashboard" onClick={clearSession}>Explore without signing in →</Link>
+          <p className="muted-copy">{signup ? "Your password is sent to the backend and stored only as a hash. It is not saved in browser storage." : forgot ? "Password recovery is a preview. No email is sent." : "Your password is sent securely to the backend over HTTPS in production. It is never saved in browser storage."}</p>
         </div>
       </section>
       <aside className="auth-art"><div><ShieldCheck /><h2>Your data deserves<br />a second thought.</h2><p>Every recommendation is transparent. Every destructive action waits for you.</p></div></aside>

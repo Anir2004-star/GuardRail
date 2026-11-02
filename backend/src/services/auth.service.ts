@@ -7,20 +7,11 @@ import { parseLoginInput, parseRegistrationInput } from "../validation/auth.vali
 import { InvalidCredentialsError } from "../errors/auth.errors.js";
 import { createAccessToken } from "../auth/access-tokens.js";
 import { createRefreshSession } from "./refresh-session.service.js";
+import { safeUserFields } from "../auth/user-profile.js";
 
 // Precompute once per process at the configured cost, not once per failed login.
 // Unknown/passwordless accounts still perform a real asynchronous comparison.
 const dummyPasswordHash = bcrypt.hash(randomBytes(32).toString("hex"), env.BCRYPT_ROUNDS);
-
-const safeUserFields = {
-  id: true,
-  name: true,
-  firstName: true,
-  middleName: true,
-  lastName: true,
-  email: true,
-  createdAt: true,
-} satisfies Prisma.UserSelect;
 
 const credentialUserFields = { ...safeUserFields, passwordHash: true } satisfies Prisma.UserSelect;
 type CredentialUser = Prisma.UserGetPayload<{ select: typeof credentialUserFields }>;
