@@ -44,3 +44,15 @@ export const refreshRateLimit = rateLimit({
     });
   },
 });
+
+export const logoutRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.set("Cache-Control", "no-store").status(429).json({
+      error: { code: "TOO_MANY_REQUESTS", message: "Too many logout attempts. Please try again later." },
+    });
+  },
+});

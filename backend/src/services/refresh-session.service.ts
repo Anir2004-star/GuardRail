@@ -92,3 +92,22 @@ export async function rotateRefreshSession(rawToken: unknown): Promise<RefreshRe
   if (!result) throw new InvalidRefreshTokenError();
   return result;
 }
+
+export async function revokeRefreshFamily(rawToken: unknown): Promise<void> {
+  const tokenHash = hashRefreshToken(rawToken);
+  await prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
+    const hint = await transaction.refreshSession.findUnique({ where: { tokenHash }, select: { userId: true } });
+    if (!hint) return;
+    // Same user-first lock order as login/rotation. An old rotated cookie can
+    // still identify and revoke the current descendant, including during a race.
+    await transaction.$queryRaw`SELECT "id" FROM "users" WHERE "id" = ${hint.userId}::uuid FOR UPDATE`;
+    const session = await transaction.refreshSession.findUnique({
+      where: { tokenHash }, select: { userId: true, familyId: true },
+    });
+    if (!session) return;
+    await transaction.refreshSession.updateMany({
+      where: { userId: session.userId, familyId: session.familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }, { maxWait: 5_000, timeout: 10_000 });
+}

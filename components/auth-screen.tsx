@@ -7,8 +7,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { registerAccount } from "@/lib/registration-api";
-import { loginAccount } from "@/lib/login-api";
-import { useAuthSession } from "./auth-store";
+import { leaveClientSession, signInAccount } from "@/lib/session-coordinator";
+import { SessionNotice } from "./session-manager";
 
 type Fields = {
   firstName: string;
@@ -32,8 +32,6 @@ function validateSignupPassword(value: string): true | string {
 
 export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const router = useRouter();
-  const setSession = useAuthSession((state) => state.setSession);
-  const clearSession = useAuthSession((state) => state.clearSession);
   const [message, setMessage] = useState("");
   const [accountCreated, setAccountCreated] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -88,14 +86,12 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
       return;
     }
     if (signedIn) return;
-    clearSession();
-    const result = await loginAccount({ email, password: data.password });
+    const result = await signInAccount({ email, password: data.password });
     if (!result.ok) {
       setError("root.server", { message: result.message });
       return;
     }
     resetField("password");
-    setSession(result.session);
     setSignedIn(true);
     router.replace("/app/dashboard");
   });
@@ -111,6 +107,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
             <h1>{title}</h1>
             <p>{signup ? "Create a real account. Sign in separately after registration." : forgot ? "Password recovery is not connected yet. No reset email will be sent." : "Sign in with your registered email and password."}</p>
           </div>
+          <SessionNotice />
           <form onSubmit={submit} noValidate>
             {signup && <>
               <label>
@@ -169,7 +166,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
             {message && <div className="feedback" role="status">{message}{signup && accountCreated && <> <Link href="/login">Go to sign in</Link></>}</div>}
           </form>
           <p className="auth-foot">{signup || forgot ? <Link href="/login">Back to sign in</Link> : <>New here? <Link href="/signup">Create an account</Link></>}</p>
-          <Link className="full-link" href="/app/dashboard" onClick={clearSession}>Explore without signing in →</Link>
+          <Link className="full-link" href="/app/dashboard" onClick={leaveClientSession}>Explore without signing in →</Link>
           <p className="muted-copy">{signup ? "Your password is sent to the backend and stored only as a hash. It is not saved in browser storage." : forgot ? "Password recovery is a preview. No email is sent." : "Your password is sent securely to the backend over HTTPS in production. It is never saved in browser storage."}</p>
         </div>
       </section>

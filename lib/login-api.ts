@@ -9,7 +9,7 @@ const userSchema = z.object({
   email: z.string().email(),
   createdAt: z.string().datetime({ offset: true }),
 });
-const loginResponseSchema = z.object({
+export const loginResponseSchema = z.object({
   user: userSchema,
   accessToken: z.string().min(1).max(4096),
   tokenType: z.literal("Bearer"),
@@ -19,7 +19,7 @@ const loginResponseSchema = z.object({
 export type LoginUser = z.infer<typeof userSchema>;
 export type LoginSession = z.infer<typeof loginResponseSchema> & { expiresAt: number };
 export type LoginInput = { email: string; password: string };
-type LoginResult =
+export type LoginResult =
   | { ok: true; session: LoginSession }
   | { ok: false; message: string; fields?: Partial<Record<keyof LoginInput, string>> };
 

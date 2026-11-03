@@ -90,17 +90,85 @@ are never written to localStorage/sessionStorage or demo settings. The backend
 refresh token is stored only in its HttpOnly cookie; frontend code cannot read it.
 
 The sidebar shows the returned account name and labels storage content/actions
-as samples. Demo profile settings still edit only the sample profile. Returning
-to sign in or choosing the demo clears memory; neither action revokes the refresh
-session or removes its cookie. Real logout is a later milestone.
+as samples. Demo profile settings still edit only the sample profile. The registered
+account menu includes real Sign out (step 11 below). Choosing the demo only clears
+frontend identity and disables restoration; it is not server-side revocation.
 
-The backend now exposes POST /api/v1/auth/refresh with token rotation and reuse
-detection (step 9; see backend/README.md). Frontend token renewal, cookie-based
-session restoration, protected API calls and route guards remain pending. A full reload clears frontend authentication state even
-though the refresh cookie may remain; it shows the demo identity again. Direct
-access to the sample dashboard is still available. The stored expiresAt records
-the access-token deadline for future authenticated requests; this milestone does
-not refresh an expired token or fetch real storage data.
+The backend exposes POST /api/v1/auth/refresh with token rotation and reuse
+detection (step 9; see backend/README.md). Step 10 below connects restoration and
+renewal. Protected API calls, route guards and real storage data remain pending;
+direct access to the sample dashboard is still available.
+
+## Session restoration and renewal (step 10)
+
+`components/session-manager.tsx` is mounted once in the root layout. Opening or
+reloading a workspace page restores the session using the HttpOnly cookie. Public
+login/signup/recovery pages do not automatically attempt restoration. Active
+sessions renew 30 seconds before their access token expires; foreground, visibility
+and pageshow events recheck deadlines after background throttling or sleep. Session
+state is still held only in memory. Tokens are not placed in browser storage.
+
+`lib/refresh-api.ts` posts to /api/v1/auth/refresh with credentials: include,
+no-store caching, rejected redirects and a 15-second timeout. It sends no password,
+access token or token body. Validated success responses update the same safe profile
+and in-memory access-token store as login. 401 clears identity and asks for sign-in
+when a previously known session expired; a fresh anonymous visit stays a demo.
+
+`lib/session-coordinator.ts` shares one in-flight refresh promise per tab and uses
+a named Web Lock to serialize both login and refresh across same-origin tabs.
+BroadcastChannel distributes new access sessions in memory. Messages are validated
+and accepted only for the current operation revision; late results cannot undo an
+explicit decision to leave the session. Tabs may sequentially refresh the updated
+cookie if they miss a broadcast; they never refresh the same cookie concurrently.
+Lock acquisition is bounded to 20 seconds. HTTPS (or localhost) and Web Locks are
+required for automatic renewal; unsupported coordination disables renewal safely.
+
+The localStorage key `guardrail.auth.coordination.v1` contains ONLY an operation
+revision, coordination status and a fixed reason code. It never stores tokens,
+passwords, cookies, emails or profiles. A pending marker is written before network
+dispatch. If a tab closes or loses the response, later tabs/reloads cannot safely
+know whether the token was consumed: they pause instead of replaying it. This
+metadata deliberately survives reloads. Blocked coordination storage also prevents
+automatic refresh; it does not silently switch to uncoordinated requests.
+
+Network/timeout, malformed response, 403, 429 and server failures pause renewal
+without an automatic retry loop. A still-valid access session remains available
+until its deadline, then its identity is cleared. A visible notice asks for fresh
+sign-in; successful sign-in resets the pause. Focus events, reloads and other tabs
+cannot bypass it. No automatic recovery is promised after an ambiguous response.
+
+These are frontend coordination controls, not server authorization. Protected
+routes/API middleware and provider data remain separate milestones.
+
+## Real logout (step 11)
+
+Open the profile menu and choose **Sign out**. `logoutClientSession` in
+`lib/session-coordinator.ts` immediately clears in-memory identity across tabs and
+invalidates late login/refresh results. It then waits for the shared cookie lock,
+so an in-flight refresh's replacement cookie arrives before the logout request.
+A login queued before logout cannot silently sign the user back in. A later
+explicit sign-in can establish a new session normally.
+
+`lib/logout-api.ts` posts to /api/v1/auth/logout with credentials: include, no body,
+no access token, no-store caching, rejected redirects and a 15-second timeout.
+The backend revokes that cookie's family and clears the cookie on HTTP 204.
+All open workspace tabs return to /login, stop renewal, and remain signed out
+after reload. The non-secret coordination marker records the signed-out state.
+Demo sample settings/items are not deleted. Separate device/login families are
+not revoked by this current-session logout.
+
+Network, 403, 429 and server errors still clear frontend identity and stop renewal,
+but are not reported as confirmed server logout. A visible **Retry logout** button
+persists across reloads. Retries are explicit, serialized and safe to repeat;
+no retry loop runs automatically. An interrupted logout also offers this recovery.
+The backend preserves the cookie on internal failure so a retry can identify and
+revoke the same family. Signing in again does not claim an earlier failed logout
+was confirmed.
+
+Logout revokes refresh sessions and discards frontend access tokens. Already issued
+access JWTs copied elsewhere still expire normally (up to the configured access
+lifetime); instantaneous access-token revocation is not implemented. Protected API
+middleware and route guards remain the next milestone.
 
 ## Verification
 
@@ -123,8 +191,16 @@ API and PostgreSQL using an isolated temporary database.
 `tests/login.spec.ts` similarly uses controlled API responses to check exact
 password handling, normalized email, pending/error/retry states, credentialed
 cookie requests, safe response validation, dashboard identity, unchanged secret
-storage and loss of in-memory identity after a full reload. These browser tests
+storage and safe handling of an invalid refresh session after a full reload. These browser tests
 do not create accounts in the development database.
+
+`tests/session.spec.ts` uses controlled rotating cookies and a simulated browser
+clock to cover reload restoration, early renewal, simultaneous tabs, lost responses,
+cross-tab expiry, pause persistence, interrupted requests, unsupported locking,
+late-response cancellation and recovery through fresh sign-in. Backend rotation
+and database concurrency remain covered by the separate backend integration suite.
+It also tests cross-tab logout, cookie removal, refresh/logout ordering, and explicit
+retry after logout network/server/origin/rate-limit failures.
 
 ## Safety invariant
 

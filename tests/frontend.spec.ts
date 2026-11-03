@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ status: 401, headers: { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Credentials": "true" } }));
+});
+
 test("all sidebar pages navigate and mark the active link", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/app/dashboard");

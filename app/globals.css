@@ -167,8 +167,9 @@ input, select { accent-color: var(--plum); }
 .profile-area { position: relative; margin-top: auto; }
 .profile-area .sidebar-profile { width: 100%; text-align: left; border-inline: 0; border-bottom: 0; background: transparent; }
 .profile-menu { position: absolute; bottom: 64px; left: 0; width: 200px; display: grid; gap: 4px; padding: 8px; color: var(--ink); background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
-.profile-menu a { font-size: 12px; padding: 12px; border-radius: 4px; }
-.profile-menu a:hover { background: var(--plum-soft); }
+.profile-menu a, .profile-menu button { font-size: 12px; padding: 12px; border-radius: 4px; }
+.profile-menu button { border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.profile-menu a:hover, .profile-menu button:hover { background: var(--plum-soft); }
 .is-collapsed .app-sidebar { width: 70px; }
 .is-collapsed .app-main { margin-left: 70px; }
 .is-collapsed .app-sidebar .brand, .is-collapsed .nav-label, .is-collapsed .app-nav-item span, .is-collapsed .app-nav-item i, .is-collapsed .sidebar-profile > span:nth-child(2), .is-collapsed .sidebar-profile > svg { display: none; }

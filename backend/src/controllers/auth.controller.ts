@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express";
 import { createLoginSession, registerUser } from "../services/auth.service.js";
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from "../auth/refresh-cookie.js";
-import { rotateRefreshSession } from "../services/refresh-session.service.js";
+import { revokeRefreshFamily, rotateRefreshSession } from "../services/refresh-session.service.js";
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
 
 export const registerController: RequestHandler = async (
@@ -31,4 +31,19 @@ export const refreshController: RequestHandler = async (request, response) => {
     // Transient/internal failures do not discard the browser's current cookie.
     throw error;
   }
+};
+
+export const logoutController: RequestHandler = async (request, response) => {
+  let token: string | undefined;
+  try {
+    token = readRefreshCookie(request);
+  } catch (error) {
+    // Missing/malformed cookies do not reveal whether a session ever existed.
+    if (!(error instanceof InvalidRefreshTokenError)) throw error;
+  }
+  if (token !== undefined) await revokeRefreshFamily(token);
+  // Clear only after successful revocation. Internal failures preserve the
+  // cookie so an explicit, idempotent retry can still identify the family.
+  clearRefreshCookie(response);
+  response.status(204).end();
 };

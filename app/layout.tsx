@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SessionManager } from "@/components/session-manager";
 
 export const metadata: Metadata = {
   title: "Guardrail — Safe AI-powered storage cleanup",
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><SessionManager />{children}</body>
     </html>
   );
 }

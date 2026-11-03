@@ -522,8 +522,8 @@ middleware, and through the public route added in step 7.
 
 Step 7 adds origin validation, a login rate limit and credentialed CORS for the
 exact FRONTEND_ORIGIN. Frontend step 8 uses `credentials: "include"` for login.
-Step 9 adds backend refresh-token rotation. Frontend session restoration and logout
-remain pending. The cookie policy assumes the UI and API are
+Step 9 adds backend refresh-token rotation and frontend step 10 connects restoration
+and renewal. Step 11 adds logout. The cookie policy assumes the UI and API are
 same-site (localhost on different ports works); unrelated production domains
 require a separate cookie/CSRF deployment design. HttpOnly prevents JavaScript
 from reading the refresh cookie; it does not replace origin/CSRF checks.
@@ -612,21 +612,56 @@ token. Invalid responses never reveal session IDs, raw tokens or database detail
 Rotation is strict: two simultaneous requests with the same cookie trigger reuse
 detection, and their family ends up revoked even if one response returned 200.
 An old-token replay racing a descendant rotation cannot leave an active descendant.
-There is no grace window or automatic retry of a consumed token. The forthcoming
-frontend refresh flow must coordinate requests, including across tabs. A lost
+There is no grace window or automatic retry of a consumed token. Frontend step 10
+coordinates requests, including across tabs, and pauses on ambiguous failures. A lost
 successful response may require a fresh sign-in. Existing access JWTs are not
 instantly revoked by family revocation; they expire normally, and future protected
 API middleware must validate them and check account permissions.
 
-The frontend still does not call this endpoint automatically. Session restoration,
-renewal scheduling, cross-tab coordination, route guards and logout remain later
-steps. The root README describes the current in-memory frontend session behavior.
+Frontend step 10 calls this endpoint for workspace reload restoration and scheduled
+renewal, using Web Locks, BroadcastChannel and non-secret coordination markers.
+Step 11 adds logout; route guards remain a later step. The root README describes restoration,
+pause behavior and the current in-memory frontend session behavior.
 
 `npm test` covers cookie parsing and existing auth checks. `npm run test:registration`
 also runs `tests/integration/refresh-route.test.mjs` against an isolated temporary
 database: public login-to-refresh, multiple rotations and fixed expiry, uniform
 invalid cases, family reuse, both concurrency races, account deletion, signing
 failure rollback, origin/CORS checks and independent throttling/health checks.
+
+## Logout - step 11: current login family revocation
+
+`POST /api/v1/auth/logout` uses requireAuthOrigin -> logoutRateLimit ->
+logoutController. It accepts only the HttpOnly guardrail_refresh cookie, requires
+the exact FRONTEND_ORIGIN, and has an independent 30-requests-per-IP/15-minute
+in-memory allowance. It requires no access JWT or password. The endpoint returns
+204 with an empty body and expires the cookie with the same path/security options.
+Responses use no-store. Missing, malformed, duplicate, unknown, expired and already
+revoked cookies do not disclose account/session existence; repeating logout is safe.
+Malformed/ambiguous cookies are cleared without choosing a session to revoke.
+
+`revokeRefreshFamily` in `src/services/refresh-session.service.ts` hashes the cookie,
+finds its user, takes the same user-row lock as login/refresh, and rereads the
+session in a transaction. It revokes all active members of that user's matching
+family, including descendants of a rotated cookie. Other families remain usable.
+Logout racing rotation leaves no active descendant. Existing rows and links are
+retained for reuse detection; no schema change/migration is required.
+
+Origin rejections and throttling do not clear cookies or revoke sessions. Internal
+database failures return generic 500 and preserve the cookie so an explicit retry
+can still identify the family. No raw cookie/token/SQL error is returned or logged.
+The frontend clears identity and stops renewal even if server logout is uncertain,
+then shows a persistent Retry logout action; it does not claim success on failure.
+
+This endpoint revokes refresh sessions, not already issued stateless access JWTs.
+Copied JWTs retain their normal configured expiry. Immediate access-token revocation,
+protected API middleware, and general route guards remain separate work.
+
+`tests/integration/logout-route.test.mjs` is included in `npm run test:registration`.
+Its isolated-database tests cover cookie clearing/revocation, independent families,
+rotated ancestors, repeated/invalid cookies, expired sessions, a logout/refresh
+race, real PostgreSQL lock-timeout failure and retry, origin/preflight protection,
+independent throttling and health/readiness availability.
 
 ## Documentation links
 

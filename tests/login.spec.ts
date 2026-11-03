@@ -16,6 +16,10 @@ const corsHeaders = {
 };
 const success = { user, accessToken, tokenType: "Bearer", expiresIn: 900 };
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ status: 401, headers: corsHeaders }));
+});
+
 async function mockLogin(page: Page, handler: (route: Route) => Promise<void>) {
   await page.route(apiPattern, async (route) => {
     if (route.request().method() === "OPTIONS") {
