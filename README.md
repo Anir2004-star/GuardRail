@@ -8,7 +8,7 @@ The repository contains a complete frontend demo:
 
 - responsive public landing page;
 - signup connected to the real Express registration API;
-- sign-in connected to the real Express login API, plus a password reset preview;
+- sign-in and email password recovery connected to the Express API;
 - application shell with desktop and mobile navigation;
 - storage usage overview backed by Recharts;
 - search, sorting, filters, item previews, folder organization, and item protection;
@@ -20,7 +20,7 @@ The repository contains a complete frontend demo:
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Signup does not log the user in. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery remains a preview and sends no email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
+All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Signup does not log the user in. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -96,8 +96,8 @@ frontend identity and disables restoration; it is not server-side revocation.
 
 The backend exposes POST /api/v1/auth/refresh with token rotation and reuse
 detection (step 9; see backend/README.md). Step 10 below connects restoration and
-renewal. Protected API calls, route guards and real storage data remain pending;
-direct access to the sample dashboard is still available.
+renewal. Step 12 adds protected account requests and workspace guards. Sample
+workspace access now requires an explicit demo choice. Real provider data remains pending.
 
 ## Session restoration and renewal (step 10)
 
@@ -112,7 +112,7 @@ state is still held only in memory. Tokens are not placed in browser storage.
 no-store caching, rejected redirects and a 15-second timeout. It sends no password,
 access token or token body. Validated success responses update the same safe profile
 and in-memory access-token store as login. 401 clears identity and asks for sign-in
-when a previously known session expired; a fresh anonymous visit stays a demo.
+when a previously known session expired; anonymous workspace visits go to sign-in.
 
 `lib/session-coordinator.ts` shares one in-flight refresh promise per tab and uses
 a named Web Lock to serialize both login and refresh across same-origin tabs.
@@ -137,8 +137,8 @@ until its deadline, then its identity is cleared. A visible notice asks for fres
 sign-in; successful sign-in resets the pause. Focus events, reloads and other tabs
 cannot bypass it. No automatic recovery is promised after an ambiguous response.
 
-These are frontend coordination controls, not server authorization. Protected
-routes/API middleware and provider data remain separate milestones.
+These are frontend coordination controls. Step 12 adds server authentication and
+workspace guards; provider data remains a separate milestone.
 
 ## Real logout (step 11)
 
@@ -167,8 +167,76 @@ was confirmed.
 
 Logout revokes refresh sessions and discards frontend access tokens. Already issued
 access JWTs copied elsewhere still expire normally (up to the configured access
-lifetime); instantaneous access-token revocation is not implemented. Protected API
-middleware and route guards remain the next milestone.
+lifetime); instantaneous access-token revocation is not implemented. Step 12 below
+adds protected API middleware and workspace guards.
+
+## Protected account access and workspace guard (step 12)
+
+`GET /api/v1/auth/me` requires a single Authorization: Bearer header. The backend
+verifies the JWT and checks that its subject still identifies an existing account.
+It returns only the current safe database profile, with Cache-Control: no-store.
+Cookies, body/query user IDs and demo markers cannot authenticate this endpoint.
+Missing, malformed, duplicate, expired, forged or deleted-account credentials get
+generic 401 responses. Database availability failures remain generic 500 responses.
+
+`lib/authenticated-api.ts` provides GET-only authenticated requests to fixed paths
+on NEXT_PUBLIC_API_URL. It reads access tokens from memory, omits cookies, rejects
+redirects, disables caching, and deduplicates in-flight reads. When a token expires
+or a read receives 401, renewal uses the existing coordinator. Each read retries
+at most once with a replacement token; another 401 clears the rejected session.
+Network/server failures show a service error, not a password error. No private
+request is sent in demo mode or without a usable token.
+
+`components/workspace-guard.tsx` wraps the workspace layout. It waits for restoration
+and verifies /auth/me before rendering the shell and workspace. It rechecks on
+token or route changes, uses the verified database profile, and ignores results
+from a superseded session. Anonymous users return to /login. Service failures
+block the workspace and offer a retry while a usable session remains; ambiguous
+refresh failures still require fresh sign-in. Expiry removes stale access sessions
+even if a renewal is still in progress.
+
+Choose **Explore without signing in** or a clearly labeled public demo link to
+enter sample mode. `components/demo-link.tsx` records that explicit choice; generic
+Get started/Start organizing links go to signup. Leaving the demo clears this
+choice. The demo flag only controls sample UI and never grants backend access.
+Tests of sample features opt into demo mode explicitly.
+
+The Next.js workspace still contains statically generated SAMPLE content. Its
+client guard is a display/navigation control, not a server authorization boundary.
+All future private data reads and mutations must use protected backend endpoints
+with their own ownership/permission checks. This milestone protects /auth/me; it
+does not add provider/file APIs or immediate revocation of copied access JWTs.
+
+## Password recovery (step 13)
+
+Forgot password now sends a reset email through SMTP. Local development uses
+Mailpit, which catches email on your computer instead of sending it to a real inbox.
+
+1. In a terminal inside `backend`, run
+   `docker compose --env-file .env.postgres --profile mail up -d`.
+2. For a fresh checkout, run `npm run db:generate` and `npm run db:deploy` there.
+   The additive password-reset migration has already been applied on this machine.
+3. Start the backend with `npm run dev` from `backend`, and the frontend with
+   `npm run dev` from the project root, in separate terminals.
+4. Visit `http://localhost:3000/forgot-password` and enter a registered email.
+5. Open `http://localhost:8025`, open the captured email, and follow its reset link.
+6. Choose a new password with at least 15 characters, uppercase, lowercase, a
+   number and a special character (maximum 72 UTF-8 bytes). Then sign in separately.
+
+The link expires after 30 minutes and works once. Requesting a replacement after
+the 60-second resend cooldown invalidates older links. The reset secret is hashed
+in PostgreSQL; the email link carries it in a fragment that the reset page removes
+from the address bar. It is never placed in browser storage. A successful reset
+revokes all refresh sessions and clears the current browser session across tabs.
+Copied access JWTs retain their normal expiry; immediate JWT revocation is not added.
+
+For delivery to real inboxes, configure the backend SMTP settings described in
+`backend/.env.example` and `backend/README.md`. Mailpit does not deliver externally.
+The bounded email queue runs in memory; pending jobs can be lost on a process crash.
+
+`tests/password-recovery.spec.ts` checks both forms, secret handling, errors and
+cross-tab session clearing with controlled API responses. Backend tests use actual
+SMTP captured locally and a disposable PostgreSQL database, with no external email.
 
 ## Verification
 
@@ -201,6 +269,10 @@ late-response cancellation and recovery through fresh sign-in. Backend rotation
 and database concurrency remain covered by the separate backend integration suite.
 It also tests cross-tab logout, cookie removal, refresh/logout ordering, and explicit
 retry after logout network/server/origin/rate-limit failures.
+`tests/auth-guard.spec.ts` covers guarded loading, bearer-only account reads,
+renewal after a rejected token, deleted-account behavior, service-error retry,
+late responses, public pages and explicit demo isolation. The backend's isolated
+integration suite checks actual JWT/account validation against PostgreSQL.
 
 ## Safety invariant
 

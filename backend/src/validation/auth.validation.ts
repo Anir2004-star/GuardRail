@@ -57,6 +57,11 @@ export const loginSchema = z.strictObject({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+export const forgotPasswordSchema = z.strictObject({ email: emailSchema });
+export const resetPasswordSchema = z.strictObject({
+  token: z.string({ error: "Reset link is invalid or expired." }).regex(/^[A-Za-z0-9_-]{43}$/, "Reset link is invalid or expired."),
+  password: registrationPasswordSchema,
+});
 export type ValidationFields = Record<string, string[]>;
 
 // Only sanitized messages and known field names are retained, never input values
@@ -99,4 +104,16 @@ export function parseLoginInput(input: unknown): LoginInput {
     ["email", "password"],
     "Send a JSON object containing only email and password.",
   );
+}
+
+export function parseForgotPasswordInput(input: unknown) {
+  const result = forgotPasswordSchema.safeParse(input);
+  if (result.success) return result.data;
+  throw inputValidationError(result.error, ["email"], "Send a JSON object containing only email.");
+}
+
+export function parseResetPasswordInput(input: unknown) {
+  const result = resetPasswordSchema.safeParse(input);
+  if (result.success) return result.data;
+  throw inputValidationError(result.error, ["token", "password"], "Send a JSON object containing only token and password.");
 }

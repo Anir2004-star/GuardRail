@@ -17,7 +17,7 @@ export function SessionManager() {
     if (workspace && ["logging-out", "logout-failed", "signed-out"].includes(status)) router.replace("/login");
     const check = () => {
       const current = useAuthSession.getState();
-      if (current.session && current.session.expiresAt <= Date.now() && current.status === "paused") {
+      if (current.session && current.session.expiresAt <= Date.now()) {
         useAuthSession.setState({ session: null });
       }
       if ((workspace || current.session) && (current.status === "idle" || current.status === "ready")) void restoreOrRenewSession();
@@ -25,12 +25,14 @@ export function SessionManager() {
     check();
     const deadline = session ? session.expiresAt - (status === "paused" ? 0 : 30_000) : undefined;
     const timer = deadline === undefined ? undefined : window.setTimeout(check, Math.max(0, deadline - Date.now()));
+    const expiryTimer = session ? window.setTimeout(check, Math.max(0, session.expiresAt - Date.now())) : undefined;
     const visible = () => { if (document.visibilityState === "visible") check(); };
     window.addEventListener("focus", check);
     window.addEventListener("pageshow", check);
     document.addEventListener("visibilitychange", visible);
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(expiryTimer);
       window.removeEventListener("focus", check);
       window.removeEventListener("pageshow", check);
       document.removeEventListener("visibilitychange", visible);

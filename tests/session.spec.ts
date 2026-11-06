@@ -12,6 +12,9 @@ const cors = {
   "Access-Control-Allow-Methods": "POST",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+test.beforeEach(async ({ context }) => {
+  await context.route("**/api/v1/auth/me", (route) => route.fulfill({ status: route.request().method() === "OPTIONS" ? 204 : 200, headers: { ...cors, "Access-Control-Allow-Methods": "GET", "Access-Control-Allow-Headers": "Authorization" }, ...(route.request().method() === "OPTIONS" ? {} : { json: { user } }) }));
+});
 const token = (index: number) => `${String.fromCharCode(65 + index).repeat(42)}A`;
 async function cookies(context: BrowserContext) {
   await context.addCookies([{ name: "guardrail_refresh", value: token(0), domain: "localhost", path: "/api/v1/auth", httpOnly: true, sameSite: "Lax" }]);
@@ -61,7 +64,7 @@ test("renewal runs before expiry and repeated foreground events do not duplicate
   await page.clock.fastForward(28_000);
   expect(requests).toBe(1);
   await page.clock.fastForward(5_000);
-  await expect(page.locator(".sidebar-profile")).toContainText("Renewed Tester");
+  await expect(page.locator(".sidebar-profile")).toContainText(user.name);
   expect(requests).toBe(2);
 });
 
@@ -132,8 +135,9 @@ test("401 on renewal clears identity across tabs and asks for sign-in", async ({
   valid = false;
   await first.clock.fastForward(31_000);
   for (const page of [first, second]) {
+    await expect(page).toHaveURL(/\/login$/);
     await expect(page.locator(".session-notice")).toContainText("Your session has expired");
-    await expect(page.locator(".sidebar-profile")).not.toContainText(user.name);
+    await expect(page.locator(".sidebar-profile")).toHaveCount(0);
   }
 });
 
@@ -160,7 +164,7 @@ test("transient failure retains an unexpired access session, then removes it at 
   await expect(page.locator(".session-notice")).toContainText("Automatic retries are paused");
   await expect(page.locator(".sidebar-profile")).toContainText(user.name);
   await page.clock.fastForward(31_000);
-  await expect(page.locator(".sidebar-profile")).not.toContainText(user.name);
+  await expect(page.locator(".sidebar-profile")).toHaveCount(0);
   expect(requests).toBe(2);
 });
 
@@ -224,8 +228,7 @@ test("explicitly leaving during restoration prevents the late response from rest
   await page.goto("/app/dashboard");
   await entered;
   try {
-    await page.locator(".sidebar-profile").click();
-    await page.getByRole("link", { name: "Leave demo", exact: true }).click();
+    await page.getByRole("link", { name: "Back to sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/login$/);
   } finally { release(); }
   await page.getByRole("link", { name: /Explore without signing in/ }).click();

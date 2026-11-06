@@ -5,6 +5,7 @@ import { useAuthSession } from "@/components/auth-store";
 import { loginAccount, loginResponseSchema, type LoginInput, type LoginResult, type LoginSession } from "./login-api";
 import { refreshAccount } from "./refresh-api";
 import { logoutAccount, type LogoutResult } from "./logout-api";
+import { resetAccountPassword, type PasswordRecoveryResult } from "./password-reset-api";
 
 const key = "guardrail.auth.coordination.v1";
 const lock = "guardrail.auth.cookie.v1";
@@ -19,6 +20,21 @@ let revision: string | undefined;
 let refreshInFlight: Promise<void> | undefined;
 let logoutInFlight: Promise<LogoutResult> | undefined;
 let initialized = false;
+const sessionWaiters = new Map<string, () => void>();
+
+async function requestSharedSession(operation: string): Promise<void> {
+  if (!channel) return;
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timer);
+      sessionWaiters.delete(operation);
+      resolve();
+    };
+    const timer = window.setTimeout(finish, 200);
+    sessionWaiters.set(operation, finish);
+    try { channel?.postMessage({ requestSession: operation }); } catch { finish(); }
+  });
+}
 
 function read(): Metadata | null {
   const value = localStorage.getItem(key);
@@ -49,7 +65,7 @@ function apply(record: Metadata): void {
     });
   } else if (record.state === "anonymous" || record.state === "demo") {
     revision = record.revision;
-    useAuthSession.setState({ session: null, status: "anonymous", message: notice(record.message) });
+    useAuthSession.setState({ session: null, status: record.state === "demo" ? "demo" : "anonymous", message: notice(record.message) });
   } else if (record.state === "paused") {
     const session = useAuthSession.getState().session;
     useAuthSession.setState({ session: session && session.expiresAt > Date.now() ? session : null, status: "paused", message: notice(record.message) });
@@ -80,6 +96,15 @@ export function initializeSessionCoordination(): void {
           } catch { apply(control.data.record); }
           return;
         }
+        const peer = z.object({ requestSession: z.string().uuid() }).safeParse(event.data);
+        if (peer.success) {
+          const record = read();
+          const session = useAuthSession.getState().session;
+          if (record?.state === "active" && record.revision === peer.data.requestSession && revision === record.revision && session && session.expiresAt > Date.now() + 30_000) {
+            channel?.postMessage({ revision: record.revision, session });
+          }
+          return;
+        }
         const result = z.object({ revision: z.string().uuid(), session: loginResponseSchema.extend({ expiresAt: z.number().finite() }) }).safeParse(event.data);
         if (!result.success) return;
         const record = read();
@@ -87,6 +112,7 @@ export function initializeSessionCoordination(): void {
         if (record?.state !== "active" || record.revision !== result.data.revision || session.expiresAt <= Date.now() || session.expiresAt > Date.now() + session.expiresIn * 1000) return;
         revision = record.revision;
         useAuthSession.getState().setSession(session);
+        sessionWaiters.get(record.revision)?.();
       } catch { /* No secrets in diagnostics; restoration can use the lock. */ }
     };
     } catch { channel = undefined; }
@@ -113,10 +139,33 @@ export function initializeSessionCoordination(): void {
   } catch { /* Storage failures are handled before automatic renewal. */ }
 }
 
-export function leaveClientSession(): void {
+function clearClientIdentity(state: "demo" | "anonymous"): void {
   initializeSessionCoordination();
-  const record: Metadata = { revision: crypto.randomUUID(), state: "demo", message: "" };
+  const record: Metadata = { revision: crypto.randomUUID(), state, message: "" };
   try { write(record); } catch { /* Local memory can still be cleared. */ }
+  apply(record);
+}
+
+export function enterDemoSession(): void { clearClientIdentity("demo"); }
+export function leaveClientSession(): void { clearClientIdentity("anonymous"); }
+
+export async function resetPasswordAndClearSession(token: string, password: string): Promise<PasswordRecoveryResult> {
+  const action = async () => {
+    const result = await resetAccountPassword(token, password);
+    if (result.ok) leaveClientSession();
+    return result;
+  };
+  try {
+    return await (navigator.locks ? navigator.locks.request(lock, { signal: AbortSignal.timeout(20_000) }, action) : action());
+  } catch {
+    return { ok: false, message: "Could not confirm the password change. Try signing in with the new password, or request a new reset link." };
+  }
+}
+
+export function rejectAccessSession(token: string): void {
+  if (useAuthSession.getState().session?.accessToken !== token) return;
+  const record: Metadata = { revision: crypto.randomUUID(), state: "anonymous", message: "expired" };
+  try { write(record); } catch { /* Always remove the rejected local token. */ }
   apply(record);
 }
 
@@ -160,7 +209,7 @@ export async function signInAccount(input: LoginInput): Promise<LoginResult> {
   }
 }
 
-export function restoreOrRenewSession(): Promise<void> {
+export function restoreOrRenewSession(rejectedToken?: string): Promise<void> {
   if (refreshInFlight) return refreshInFlight;
   initializeSessionCoordination();
   refreshInFlight = (async () => {
@@ -170,7 +219,14 @@ export function restoreOrRenewSession(): Promise<void> {
     }
     await navigator.locks.request(lock, { signal: AbortSignal.timeout(20_000) }, async () => {
       let record = read();
-      const session = useAuthSession.getState().session;
+      let session = useAuthSession.getState().session;
+      if (record?.state === "active" && (!session || revision !== record.revision)) {
+        // A storage event may arrive before the session broadcast. Ask a live
+        // peer for the current revision before consuming another refresh token.
+        await requestSharedSession(record.revision);
+        record = read();
+        session = useAuthSession.getState().session;
+      }
       if (record?.state === "logging-out") {
         record = { ...record, state: "logout-failed" };
         write(record);
@@ -178,7 +234,7 @@ export function restoreOrRenewSession(): Promise<void> {
         return;
       }
       if (record?.state === "logout-failed" || record?.state === "signed-out") { apply(record); return; }
-      if (session && session.expiresAt > Date.now() + 30_000 && record?.state === "active") return;
+      if (session && session.expiresAt > Date.now() + 30_000 && record?.state === "active" && session.accessToken !== rejectedToken) return;
       if (record?.state === "anonymous" || record?.state === "demo" || record?.state === "paused") { apply(record); return; }
       if (record?.state === "pending") {
         // The lock is free but a previous operation never recorded its outcome.

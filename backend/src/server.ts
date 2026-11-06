@@ -2,8 +2,8 @@ import type { Server } from "node:http";
 import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { disconnectDatabase } from "./config/database.js";
+import { drainPasswordResetEmails } from "./services/password-reset.service.js";
 
-let server: Server;
 let shuttingDown = false;
 
 function handleStartupError(error: NodeJS.ErrnoException): void {
@@ -33,7 +33,7 @@ function shutDown(signal: NodeJS.Signals): void {
       process.exit(1);
     }
     // Keep the existing deadline active while the database pool drains.
-    void disconnectDatabase().then(() => {
+    void drainPasswordResetEmails().then(disconnectDatabase).then(() => {
       clearTimeout(forceTimer);
       console.log("Guardrail backend stopped.");
       process.exit(0);
@@ -44,7 +44,7 @@ function shutDown(signal: NodeJS.Signals): void {
   });
 }
 
-server = app.listen(env.PORT, () => {
+const server: Server = app.listen(env.PORT, () => {
   console.log(`Guardrail backend listening at http://localhost:${env.PORT}`);
 });
 

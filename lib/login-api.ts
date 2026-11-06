@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const userSchema = z.object({
+export const userSchema = z.object({
   id: z.string().uuid(),
   name: z.string().nullable(),
   firstName: z.string().nullable(),

@@ -351,7 +351,8 @@ instances need a shared store, and trusted proxies must be configured explicitly
 when deploying. Auth responses are not cached. Registration issues no login
 tokens or cookies. The frontend signup screen now calls this API, displays field
 and request errors, clears passwords after success and offers a sign-in link.
-Real sign-in and password recovery remain unimplemented demo flows.
+Real sign-in, renewal and logout are implemented in later milestones below.
+Password recovery is connected through the SMTP flow described in step 13 below.
 
 Run from `backend` with the local PostgreSQL service healthy:
 
@@ -456,13 +457,14 @@ maximum configured lifetime. It never uses decode-only data as authentication.
 Failure raises a generic InvalidAccessTokenError, mapped to a no-store HTTP 401
 without raw tokens or library error details. The verifier returns only userId,
 issuedAt, expiresAt and tokenId; it does not check account existence or access
-permissions. Protected-route middleware must do that in a later step.
+permissions. Step 12's requireAuth middleware checks account existence; future
+resource endpoints must also enforce ownership and permissions.
 
 `createLoginAccess(input)` in the auth service first verifies credentials, then
 returns the safe user and access-token bundle. It is an internal building block,
 not a public login endpoint. Registration still does not automatically log in.
-Step 5 below adds refresh sessions and step 6 adds cookies. Profile routes remain
-unfinished. Frontend step 8 connects real sign-in. Access tokens are returned in JSON and held in frontend
+Step 5 below adds refresh sessions and step 6 adds cookies. Step 12 adds /auth/me.
+Frontend step 8 connects real sign-in. Access tokens are returned in JSON and held in frontend
 memory, never recommended for localStorage/sessionStorage.
 
 Run `npm test` for independent signature/claim tests with a randomly generated
@@ -615,12 +617,12 @@ An old-token replay racing a descendant rotation cannot leave an active descenda
 There is no grace window or automatic retry of a consumed token. Frontend step 10
 coordinates requests, including across tabs, and pauses on ambiguous failures. A lost
 successful response may require a fresh sign-in. Existing access JWTs are not
-instantly revoked by family revocation; they expire normally, and future protected
-API middleware must validate them and check account permissions.
+instantly revoked by family revocation; they expire normally. Step 12 validates
+them and checks account existence; future resource APIs must enforce permissions.
 
 Frontend step 10 calls this endpoint for workspace reload restoration and scheduled
 renewal, using Web Locks, BroadcastChannel and non-secret coordination markers.
-Step 11 adds logout; route guards remain a later step. The root README describes restoration,
+Step 11 adds logout and step 12 adds workspace guards. The root README describes restoration,
 pause behavior and the current in-memory frontend session behavior.
 
 `npm test` covers cookie parsing and existing auth checks. `npm run test:registration`
@@ -654,14 +656,129 @@ The frontend clears identity and stops renewal even if server logout is uncertai
 then shows a persistent Retry logout action; it does not claim success on failure.
 
 This endpoint revokes refresh sessions, not already issued stateless access JWTs.
-Copied JWTs retain their normal configured expiry. Immediate access-token revocation,
-protected API middleware, and general route guards remain separate work.
+Copied JWTs retain their normal configured expiry. Immediate access-token revocation
+remains separate work. Step 12 adds protected API middleware and workspace guards.
 
 `tests/integration/logout-route.test.mjs` is included in `npm run test:registration`.
 Its isolated-database tests cover cookie clearing/revocation, independent families,
 rotated ancestors, repeated/invalid cookies, expired sessions, a logout/refresh
 race, real PostgreSQL lock-timeout failure and retry, origin/preflight protection,
 independent throttling and health/readiness availability.
+
+## Protected current-user endpoint - step 12
+
+`GET /api/v1/auth/me` uses `requireAuth` from `src/middleware/require-auth.ts`, then
+`currentUserController`. Authentication accepts exactly one Authorization header
+with a Bearer JWT. Scheme matching is case-insensitive; duplicate raw headers,
+combined values, malformed formats and oversized tokens are rejected. The existing
+access-token verifier enforces signature, algorithm/type, issuer/audience, required
+claims, UUIDs and timestamps before any account lookup.
+
+The verified sub is the only lookup key. A missing or deleted account returns the
+same generic 401 as an invalid token. Only `safeUserFields` is selected from the
+shared Prisma client. Request-local typed response locals carry this safe profile
+to the controller; no password hash, token or session is returned. The profile is
+read again on each request. Responses use no-store; 401 adds a static Bearer
+WWW-Authenticate challenge. No cookie is created, cleared or used as authentication.
+
+This read endpoint does not require an Origin header for non-browser bearer
+clients. Existing exact-origin CORS controls browser access, including Authorization
+preflight. The origin checks on registration/login/refresh/logout remain required.
+Database failures propagate to the sanitized 500 handler rather than being treated
+as bad credentials. Client-supplied IDs never select another user's profile.
+
+Reuse requireAuth for future private endpoints, then enforce each resource's own
+ownership/permission checks. Frontend demo flags and route guards do not authorize
+backend data. Existing copied access JWTs still have their normal expiry after
+logout; checking account existence does not implement instant token revocation.
+
+`tests/require-auth.test.mjs` covers header parsing and safe middleware failures.
+`tests/integration/current-user.test.mjs`, run through the isolated database runner,
+covers safe current profiles, bearer/cookie separation, expired/forged signatures,
+raw duplicate headers, missing/deleted accounts, current profile reads, CORS, and
+real database lock-timeout failure/recovery. No database migration is needed.
+
+## Password recovery - step 13
+
+`POST /api/v1/auth/forgot-password` accepts `{ email }`. Valid email addresses are
+trimmed and lowercased. Every valid request enters the same bounded mail queue
+before account lookup and returns 202 with the same generic message, including
+unknown accounts and resend cooldowns. SMTP failures are logged with a static
+message, without addresses, credentials or tokens. Missing production mail
+configuration or a full queue returns a uniform 503 before lookup.
+
+`POST /api/v1/auth/reset-password` accepts `{ token, password }`. It validates the
+existing registration password rules without trimming the password. Invalid,
+expired and used links get the same safe 400. Success returns an empty 204, clears
+the refresh cookie, and does not log the user in. Both routes enforce the configured
+Origin before rate limiting and validation. Limits are 10 reset requests and 20
+reset submissions per IP per 15 minutes, independently of login/registration limits.
+
+The additive `20261106000100_add_password_reset_tokens` migration creates a token
+table without changing existing user records. Tokens contain 32 random bytes;
+only their purpose-separated SHA-256 hashes are stored. The default lifetime is
+1800 seconds (`PASSWORD_RESET_TTL_SECONDS`, allowed range 300-3600). Resends have a
+60-second per-account cooldown. New links invalidate previous unused links.
+
+Redemption checks the token, hashes the new password with bcrypt, then locks the
+user row and checks the token again. Password replacement, consumption of every
+unused reset link, and revocation of every active refresh session for that user
+happen in one transaction. This serializes concurrent resets and refreshes. Other
+accounts are unaffected. A best-effort notification email confirms the change,
+without a password or token. Existing copied access JWTs expire normally.
+
+Email links use the trusted `FRONTEND_ORIGIN`, never request-supplied hosts. The
+token is in `#token=...`, so it is not sent in a page request. The frontend removes
+it from the address bar and uses a no-referrer policy; the secret stays in component
+memory. Reloading after removal requires requesting a new link.
+
+### Local email setup
+
+From `backend`, run:
+
+```bash
+docker compose --env-file .env.postgres --profile mail up -d
+npm run db:generate
+npm run db:deploy
+npm run dev
+```
+
+Start the frontend in another terminal from the project root. Request a reset for
+a registered account at `http://localhost:3000/forgot-password`, then open
+`http://localhost:8025` to read the captured email. Defaults use local SMTP
+`127.0.0.1:1025`; Mailpit only captures email and never sends it to external inboxes.
+The optional container exposes its SMTP and web ports only on loopback.
+
+### Real email delivery
+
+Set these in the private backend `.env` using your SMTP provider's actual values:
+
+```dotenv
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-provider-username
+SMTP_PASSWORD=your-provider-password
+MAIL_FROM=verified-sender@your-domain.example
+```
+
+Set `FRONTEND_ORIGIN` to your deployed HTTPS frontend. Port 587 uses required
+STARTTLS for external/production SMTP. Providers requiring implicit TLS generally
+use port 465 with `SMTP_SECURE=true`. Certificate verification remains enabled.
+SMTP username/password must be supplied together; use a provider-verified sender.
+Production recovery requires explicit SMTP host/from settings, without preventing
+unrelated authentication routes from starting when recovery is unconfigured.
+
+The mail queue holds at most 100 jobs per process and is not durable across crashes
+or restarts. Shutdown drains jobs within the server's existing 10-second deadline.
+A durable queue and shared rate limiting are further deployment work for multiple
+instances. A 202 response acknowledges a request, not guaranteed email delivery.
+
+`npm test` covers token/configuration/validation safety. `npm run test:registration`
+also runs recovery integration tests against a disposable database and a loopback
+SMTP capture server: actual messages, cooldown/replacement, expiry, single use,
+concurrent redemption/refresh, hashing, session revocation, origin/rate controls,
+SMTP failure sanitization and health/readiness. No real external email is sent.
 
 ## Documentation links
 
@@ -675,3 +792,4 @@ independent throttling and health/readiness availability.
 - [express-rate-limit configuration](https://express-rate-limit.mintlify.app/reference/configuration)
 - [Refresh token replay protection, RFC 9700 section 4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2)
 - [Prisma 7 interactive transactions](https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions)
+- [Bearer authorization headers, RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-2.1)

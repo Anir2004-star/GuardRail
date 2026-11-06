@@ -3,6 +3,12 @@ import { createLoginSession, registerUser } from "../services/auth.service.js";
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from "../auth/refresh-cookie.js";
 import { revokeRefreshFamily, rotateRefreshSession } from "../services/refresh-session.service.js";
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
+import type { AuthenticatedHandler } from "../middleware/require-auth.js";
+import { requestPasswordReset, resetPassword } from "../services/password-reset.service.js";
+
+export const currentUserController: AuthenticatedHandler = (_request, response) => {
+  response.status(200).json({ user: response.locals.authUser });
+};
 
 export const registerController: RequestHandler = async (
   request,
@@ -44,6 +50,16 @@ export const logoutController: RequestHandler = async (request, response) => {
   if (token !== undefined) await revokeRefreshFamily(token);
   // Clear only after successful revocation. Internal failures preserve the
   // cookie so an explicit, idempotent retry can still identify the family.
+  clearRefreshCookie(response);
+  response.status(204).end();
+};
+
+export const forgotPasswordController: RequestHandler = (request, response) => {
+  requestPasswordReset(request.body);
+  response.status(202).json({ message: "If an account exists for that email, a password reset link will be sent." });
+};
+export const resetPasswordController: RequestHandler = async (request, response) => {
+  await resetPassword(request.body);
   clearRefreshCookie(response);
   response.status(204).end();
 };

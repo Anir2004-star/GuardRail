@@ -56,3 +56,16 @@ export const logoutRateLimit = rateLimit({
     });
   },
 });
+
+function passwordRecoveryLimit(limit: number) {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000, limit, standardHeaders: "draft-8", legacyHeaders: false,
+    handler: (_request, response) => {
+      response.set("Cache-Control", "no-store").status(429).json({ error: {
+        code: "TOO_MANY_REQUESTS", message: "Too many password recovery attempts. Please try again later.",
+      } });
+    },
+  });
+}
+export const forgotPasswordRateLimit = passwordRecoveryLimit(10);
+export const resetPasswordRateLimit = passwordRecoveryLimit(20);

@@ -18,3 +18,17 @@ export class InvalidRefreshTokenError extends Error {
     this.name = "InvalidRefreshTokenError";
   }
 }
+
+export class InvalidPasswordResetTokenError extends Error {
+  constructor() {
+    super("Reset link is invalid or expired. Request a new link.");
+    this.name = "InvalidPasswordResetTokenError";
+  }
+}
+
+export class PasswordResetUnavailableError extends Error {
+  constructor() {
+    super("Password recovery is temporarily unavailable. Please try again later.");
+    this.name = "PasswordResetUnavailableError";
+  }
+}

@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const key = "guardrail.auth.coordination.v1";
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ revision: "71e23186-bc0e-4f4c-bdf5-ac0df68cf038", state: "demo", message: "" }));
+  });
   await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ status: 401, headers: { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Credentials": "true" } }));
 });
 
@@ -150,10 +154,6 @@ test("signup validates matching passwords and never stores a password", async ({
   await expect(page.getByLabel("Confirm password")).toHaveValue("");
   const saved = await page.evaluate(() => localStorage.getItem("guardrail-frontend-demo-v1"));
   expect(saved ?? "").not.toContain("My strong Passphrase!42");
-  await page.goto("/forgot-password");
-  await page.getByLabel("Email address").fill("demo@example.com");
-  await page.getByRole("button", { name: "Preview reset request" }).click();
-  await expect(page.getByRole("status")).toContainText("No email was sent");
 });
 
 test("mobile navigation and pages fit the viewport", async ({ page }) => {

@@ -18,6 +18,7 @@ const success = { user, accessToken, tokenType: "Bearer", expiresIn: 900 };
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ status: 401, headers: corsHeaders }));
+  await page.route("**/api/v1/auth/me", (route) => route.fulfill({ status: route.request().method() === "OPTIONS" ? 204 : 200, headers: { ...corsHeaders, "Access-Control-Allow-Methods": "GET", "Access-Control-Allow-Headers": "Authorization" }, ...(route.request().method() === "OPTIONS" ? {} : { json: { user } }) }));
 });
 
 async function mockLogin(page: Page, handler: (route: Route) => Promise<void>) {
@@ -71,8 +72,8 @@ test("real sign-in sends exact credentials once, includes cookies, and stores no
   await page.getByRole("link", { name: "Activity", exact: true }).click();
   await expect(page.locator(".sidebar-profile")).toContainText(user.name);
   await page.reload();
-  await expect(page.locator(".sidebar-profile")).toContainText("Demo workspace");
-  await expect(page.locator(".sidebar-profile")).not.toContainText(user.name);
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.locator(".sidebar-profile")).toHaveCount(0);
   expect(postCount).toBe(1);
 });
 

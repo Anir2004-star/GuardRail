@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 import { Prisma } from "../generated/prisma/client.js";
 import { InputValidationError } from "../validation/auth.validation.js";
-import { InvalidAccessTokenError, InvalidCredentialsError, InvalidRefreshTokenError } from "../errors/auth.errors.js";
+import { InvalidAccessTokenError, InvalidCredentialsError, InvalidPasswordResetTokenError, InvalidRefreshTokenError, PasswordResetUnavailableError } from "../errors/auth.errors.js";
 
 type HttpParserError = Error & {
   status?: number;
@@ -38,6 +38,13 @@ function isEmailConflict(error: unknown): boolean {
 export const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
   // Express recognizes error middleware by its four-argument signature.
   void _next;
+  if (error instanceof InvalidPasswordResetTokenError || error instanceof PasswordResetUnavailableError) {
+    const unavailable = error instanceof PasswordResetUnavailableError;
+    response.set("Cache-Control", "no-store").status(unavailable ? 503 : 400).json({
+      error: { code: unavailable ? "PASSWORD_RESET_UNAVAILABLE" : "INVALID_RESET_TOKEN", message: error.message },
+    });
+    return;
+  }
   if (error instanceof InvalidRefreshTokenError) {
     response.set("Cache-Control", "no-store").status(401).json({
       error: { code: "INVALID_REFRESH_TOKEN", message: error.message },
@@ -46,6 +53,7 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
   }
 
   if (error instanceof InvalidAccessTokenError) {
+    response.set("WWW-Authenticate", 'Bearer realm="guardrail"');
     response.set("Cache-Control", "no-store").status(401).json({
       error: { code: "UNAUTHORIZED", message: error.message },
     });

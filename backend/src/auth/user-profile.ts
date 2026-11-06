@@ -10,3 +10,5 @@ export const safeUserFields = {
   email: true,
   createdAt: true,
 } satisfies Prisma.UserSelect;
+
+export type SafeUser = Prisma.UserGetPayload<{ select: typeof safeUserFields }>;
