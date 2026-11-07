@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { registerAccount } from "@/lib/registration-api";
 import { enterDemoSession, signInAccount } from "@/lib/session-coordinator";
 import { SessionNotice } from "./session-manager";
 import { validateAccountPassword } from "@/lib/password-validation";
 import { requestPasswordReset, RESET_REQUEST_MESSAGE } from "@/lib/password-reset-api";
+import { GoogleSignIn } from "./google-signin";
 
 type Fields = {
   firstName: string;
@@ -19,7 +20,6 @@ type Fields = {
   email: string;
   password: string;
   confirm: string;
-  terms: boolean;
 };
 
 export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
@@ -27,8 +27,11 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const [message, setMessage] = useState("");
   const [accountCreated, setAccountCreated] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const { register, handleSubmit, setError, resetField, formState: { errors, isSubmitting } } = useForm<Fields>({
-    defaultValues: { firstName: "", middleName: "", lastName: "", email: "", password: "", confirm: "", terms: false },
+    defaultValues: { firstName: "", middleName: "", lastName: "", email: "", password: "", confirm: "" },
   });
 
   const signup = mode === "signup";
@@ -36,6 +39,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const title = signup ? "Create your workspace" : forgot ? "Reset your password" : "Sign in to your workspace";
 
   const submit = handleSubmit(async (data) => {
+    if (googleBusy) return;
     setMessage("");
     const email = data.email.trim().toLowerCase();
     if (!z.string().email().safeParse(email).success) {
@@ -130,35 +134,37 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
             </>}
             <label>
               Email address
-              <input type="email" {...register("email", { required: "Enter an email address." })} placeholder="you@example.com" autoComplete="email" readOnly={signup && accountCreated} aria-invalid={!!errors.email} aria-describedby={errors.email ? "email-error" : undefined} />
+              <input type="email" {...register("email", { required: "Enter an email address." })} placeholder="you@gmail.com" autoComplete="email" readOnly={signup && accountCreated} aria-invalid={!!errors.email} aria-describedby={errors.email ? "email-error" : undefined} />
               {errors.email && <span id="email-error" className="field-error" role="alert">{errors.email.message}</span>}
             </label>
-            {!forgot && <label>
+            {!forgot && <label htmlFor="auth-password">
               Password
-              <input type="password" {...register("password", {
+              <span className="password-input">
+              <input id="auth-password" type={showPassword ? "text" : "password"} {...register("password", {
                 required: "Enter a password.",
                 validate: (value) => signup ? validateAccountPassword(value) : new TextEncoder().encode(value).length <= 72 || "Use no more than 72 UTF-8 bytes.",
-              })} autoComplete={signup ? "new-password" : "current-password"} readOnly={signup && accountCreated} placeholder={signup ? "Create a strong passphrase" : "Enter your password"} aria-label="Password" aria-invalid={!!errors.password} aria-describedby={signup ? `password-help${errors.password ? " password-error" : ""}` : errors.password ? "password-error" : undefined} />
-              {signup && <small id="password-help">Use at least 15 characters, including uppercase, lowercase, a number, and a special character. Maximum 72 UTF-8 bytes; spaces are allowed.</small>}
+              })} autoComplete={signup ? "new-password" : "current-password"} readOnly={signup && accountCreated} placeholder={signup ? "Password" : "Enter your password"} aria-label="Password" aria-invalid={!!errors.password} aria-describedby={signup ? `password-help${errors.password ? " password-error" : ""}` : errors.password ? "password-error" : undefined} />
+              <button className="password-toggle" type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} aria-controls="auth-password" disabled={signup && accountCreated} onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>
+              </span>
+              {signup && <small id="password-help">Use at least 8 characters, including uppercase, lowercase, a number, and a special character. Maximum 72 UTF-8 bytes; spaces are allowed.</small>}
               {errors.password && <span id="password-error" className="field-error" role="alert">{errors.password.message}</span>}
             </label>}
             {signup && <>
-              <label>
+              <label htmlFor="auth-confirm-password">
                 Confirm password
-                <input type="password" {...register("confirm", { required: "Confirm your password." })} autoComplete="new-password" readOnly={accountCreated} aria-invalid={!!errors.confirm} aria-describedby={errors.confirm ? "confirm-error" : undefined} />
+                <span className="password-input">
+                <input id="auth-confirm-password" type={showConfirm ? "text" : "password"} {...register("confirm", { required: "Confirm your password." })} autoComplete="new-password" readOnly={accountCreated} aria-invalid={!!errors.confirm} aria-describedby={errors.confirm ? "confirm-error" : undefined} />
+                <button className="password-toggle" type="button" aria-label={showConfirm ? "Hide confirm password" : "Show confirm password"} aria-pressed={showConfirm} aria-controls="auth-confirm-password" disabled={accountCreated} onClick={() => setShowConfirm((visible) => !visible)}>{showConfirm ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>
+                </span>
                 {errors.confirm && <span id="confirm-error" className="field-error" role="alert">{errors.confirm.message}</span>}
               </label>
-              <label className="check-row">
-                <input type="checkbox" {...register("terms", { required: "Accept the privacy overview to continue." })} disabled={accountCreated} aria-invalid={!!errors.terms} aria-describedby={errors.terms ? "terms-error" : undefined} />
-                <span>I have read the <Link href="/privacy">privacy overview</Link>.</span>
-              </label>
-              {errors.terms && <span id="terms-error" className="field-error" role="alert">{errors.terms.message}</span>}
             </>}
             {mode === "login" && <div className="form-row"><span>Use your registered account</span><Link href="/forgot-password">Forgot password?</Link></div>}
-            <button className="button auth-submit" type="submit" disabled={isSubmitting || signedIn || (signup && accountCreated)}>{isSubmitting ? "Please wait..." : forgot ? "Send reset link" : signup ? accountCreated ? "Account created" : "Create account" : signedIn ? "Signed in" : "Sign in"}</button>
+            <button className="button auth-submit" type="submit" disabled={isSubmitting || googleBusy || signedIn || (signup && accountCreated)}>{isSubmitting ? "Please wait..." : forgot ? "Send reset link" : signup ? accountCreated ? "Account created" : "Create account" : signedIn ? "Signed in" : "Sign in"}</button>
             {errors.root?.server && <div className="field-error" role="alert">{errors.root.server.message}</div>}
             {message && <div className="feedback" role="status">{message}{signup && accountCreated && <> <Link href="/login">Go to sign in</Link></>}</div>}
           </form>
+          {!forgot && <GoogleSignIn key={mode} mode={signup ? "signup" : "login"} disabled={isSubmitting || signedIn || accountCreated} onBusy={setGoogleBusy} onSuccess={() => { resetField("password"); resetField("confirm"); setSignedIn(true); router.replace("/app/dashboard"); }} />}
           <p className="auth-foot">{signup || forgot ? <Link href="/login">Back to sign in</Link> : <>New here? <Link href="/signup">Create an account</Link></>}</p>
           <Link className="full-link" href="/app/dashboard" onClick={enterDemoSession}>Explore without signing in →</Link>
           <p className="muted-copy">{signup ? "Your password is sent to the backend and stored only as a hash. It is not saved in browser storage." : forgot ? "Reset links expire after a short time and can be used once." : "Your password is sent securely to the backend over HTTPS in production. It is never saved in browser storage."}</p>

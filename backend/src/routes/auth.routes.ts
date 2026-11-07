@@ -6,8 +6,10 @@ import { validateRegistration } from "../middleware/validate-registration.js";
 import { validateLogin } from "../middleware/validate-login.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { validateForgotPassword, validateResetPassword } from "../middleware/validate-password-reset.js";
+import { googleAuthRouter } from "./google-auth.routes.js";
 
 export const authRouter = Router();
+authRouter.use("/google", googleAuthRouter);
 
 authRouter.get("/me", requireAuth, currentUserController);
 

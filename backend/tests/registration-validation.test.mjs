@@ -52,14 +52,15 @@ test("invalid emails are rejected without coercion or provider-specific rewritin
 });
 
 test("password length counts Unicode characters and enforces the 72-byte bcrypt boundary", () => {
-  const shortest = "Aa1!" + "b".repeat(11);
+  const shortest = "Aa1!" + "b".repeat(4);
   assert.equal(parseRegistrationInput({ ...valid, password: shortest }).password, shortest);
-  assert.throws(() => parseRegistrationInput({ ...valid, password: shortest.slice(1) }), InputValidationError);
+  assert.throws(() => parseRegistrationInput({ ...valid, password: shortest.slice(0, -1) }), InputValidationError);
   const atLimit = "Aa1!" + "é".repeat(34);
   assert.equal(Buffer.byteLength(atLimit), 72);
   assert.equal(parseRegistrationInput({ ...valid, password: atLimit }).password, atLimit);
   assert.throws(() => parseRegistrationInput({ ...valid, password: atLimit + "a" }), InputValidationError);
-  assert.throws(() => parseRegistrationInput({ ...valid, password: "Aa1!" + "😀".repeat(6) }), InputValidationError);
+  assert.throws(() => parseRegistrationInput({ ...valid, password: "Aa1!" + "😀".repeat(3) }), InputValidationError);
+  assert.equal(parseRegistrationInput({ ...valid, password: "Aa1!" + "😀".repeat(4) }).password, "Aa1!" + "😀".repeat(4));
 });
 
 test("passwords need uppercase, lowercase, a number and a non-space special character", () => {

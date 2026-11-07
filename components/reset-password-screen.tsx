@@ -41,7 +41,7 @@ export function ResetPasswordScreen() {
         : !token ? <div className="feedback" role="alert">Reset link is invalid or expired. <Link href="/forgot-password">Request a new link</Link>.</div>
           : <form onSubmit={submit} noValidate>
             <label>New password<input type="password" autoComplete="new-password" {...register("password", { required: "Enter a password.", validate: validateAccountPassword })} aria-invalid={!!errors.password} aria-describedby="reset-password-help" /></label>
-            <small id="reset-password-help">Use at least 15 characters with uppercase, lowercase, a number and a special character. Maximum 72 UTF-8 bytes.</small>
+            <small id="reset-password-help">Use at least 8 characters with uppercase, lowercase, a number and a special character. Maximum 72 UTF-8 bytes.</small>
             {errors.password && <span className="field-error" role="alert">{errors.password.message}</span>}
             <label>Confirm new password<input type="password" autoComplete="new-password" {...register("confirm", { required: "Confirm your password." })} aria-invalid={!!errors.confirm} /></label>
             {errors.confirm && <span className="field-error" role="alert">{errors.confirm.message}</span>}

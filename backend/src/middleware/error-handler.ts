@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler } from "express";
+import { GoogleAuthError } from "../auth/google-identity.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { InputValidationError } from "../validation/auth.validation.js";
 import { InvalidAccessTokenError, InvalidCredentialsError, InvalidPasswordResetTokenError, InvalidRefreshTokenError, PasswordResetUnavailableError } from "../errors/auth.errors.js";
@@ -38,6 +39,10 @@ function isEmailConflict(error: unknown): boolean {
 export const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
   // Express recognizes error middleware by its four-argument signature.
   void _next;
+  if (error instanceof GoogleAuthError) {
+    response.set("Cache-Control", "no-store").status(error.status).json({ error: { code: error.code, message: error.message } });
+    return;
+  }
   if (error instanceof InvalidPasswordResetTokenError || error instanceof PasswordResetUnavailableError) {
     const unavailable = error instanceof PasswordResetUnavailableError;
     response.set("Cache-Control", "no-store").status(unavailable ? 503 : 400).json({

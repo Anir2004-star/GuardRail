@@ -143,7 +143,6 @@ test("signup validates matching passwords and never stores a password", async ({
   await page.getByLabel("Email address").fill("demo@example.com");
   await page.getByLabel("Password", { exact: true }).fill("My strong Passphrase!42");
   await page.getByLabel("Confirm password").fill("different-password");
-  await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Create account", exact: true }).click();
   await expect(page.getByText("Passwords must match.")).toBeVisible();
   await page.getByLabel("Confirm password").fill("My strong Passphrase!42");

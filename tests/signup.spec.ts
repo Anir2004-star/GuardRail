@@ -16,7 +16,6 @@ async function fillSignup(page: Page) {
   await page.getByLabel("Email address").fill(" Signup+Example@Example.ORG ");
   await page.getByLabel("Password", { exact: true }).fill(samplePassword);
   await page.getByLabel("Confirm password").fill(samplePassword);
-  await page.getByRole("checkbox").check();
 }
 
 async function mockSignup(page: Page, handler: (route: Route) => Promise<void>) {

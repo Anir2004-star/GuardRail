@@ -42,7 +42,7 @@ try {
   ], { cwd: backendDirectory, env: childEnvironment, timeout: 60_000 });
   console.log("PASS: committed migrations applied to a new isolated test database.");
   const result = await execute(process.execPath, [
-    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs", "tests/integration/login-credentials.test.mjs", "tests/integration/refresh-sessions.test.mjs", "tests/integration/login-route.test.mjs", "tests/integration/refresh-route.test.mjs", "tests/integration/logout-route.test.mjs", "tests/integration/current-user.test.mjs", "tests/integration/password-recovery.test.mjs",
+    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs", "tests/integration/login-credentials.test.mjs", "tests/integration/refresh-sessions.test.mjs", "tests/integration/login-route.test.mjs", "tests/integration/refresh-route.test.mjs", "tests/integration/logout-route.test.mjs", "tests/integration/current-user.test.mjs", "tests/integration/password-recovery.test.mjs", "tests/integration/google-auth.test.mjs",
   ], { cwd: backendDirectory, env: childEnvironment, timeout: 120_000 });
   console.log(result.stdout.trim());
 } catch (error) {

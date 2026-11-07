@@ -169,7 +169,16 @@ export function rejectAccessSession(token: string): void {
   apply(record);
 }
 
-export async function signInAccount(input: LoginInput): Promise<LoginResult> {
+export function signInAccount(input: LoginInput): Promise<LoginResult> {
+  return coordinateSignIn(() => loginAccount(input));
+}
+
+export async function signInGoogleAccount(input: import("./google-signin-api").GoogleInput): Promise<LoginResult> {
+  const { completeGoogleSignIn } = await import("./google-signin-api");
+  return coordinateSignIn(() => completeGoogleSignIn(input));
+}
+
+async function coordinateSignIn(request: () => Promise<LoginResult>): Promise<LoginResult> {
   initializeSessionCoordination();
   let requestedRevision: string | undefined;
   try { requestedRevision = read()?.revision; } catch { /* Fresh sign-in can repair metadata. */ }
@@ -184,7 +193,7 @@ export async function signInAccount(input: LoginInput): Promise<LoginResult> {
     let persistent = true;
     try { write({ revision: operation, state: "pending", message: "" }); } catch { persistent = false; }
     useAuthSession.setState({ session: null, status: "restoring", message: "" });
-    const result = await loginAccount(input);
+    const result = await request();
     try {
       if (persistent && read()?.revision !== operation) return { ok: false, message: "Sign-in was cancelled. Please try again." };
     } catch { persistent = false; }

@@ -48,7 +48,8 @@ export async function registerUser(input: unknown) {
   });
 }
 
-async function verifyPasswordAccount(input: unknown) {
+// Server-only credential snapshot; callers must never return its hash in JSON.
+export async function verifyPasswordAccount(input: unknown) {
   const data = parseLoginInput(input);
   const user = await prisma.user.findUnique({
     where: { email: data.email },

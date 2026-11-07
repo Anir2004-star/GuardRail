@@ -94,7 +94,7 @@ test("new-password rules and confirmation block invalid submissions without cons
   await fillReset(page);
   await page.getByLabel("New password", { exact: true }).fill("weak");
   await page.getByRole("button", { name: "Change password", exact: true }).click();
-  await expect(page.locator("form").getByRole("alert")).toHaveText("Use at least 15 characters.");
+  await expect(page.locator("form").getByRole("alert")).toHaveText("Use at least 8 characters.");
   expect(posts).toBe(0);
   await page.getByLabel("New password", { exact: true }).fill(password);
   await page.getByLabel("Confirm new password", { exact: true }).fill("different");

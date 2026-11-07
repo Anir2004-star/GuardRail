@@ -19,6 +19,7 @@ model User {
   middleName      String?          @map("middle_name") @db.VarChar(60)
   lastName        String?          @map("last_name") @db.VarChar(60)
   passwordHash    String?          @map("password_hash") @db.VarChar(60)
+  googleSubject   String?          @unique @map("google_subject") @db.VarChar(255)
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   refreshSessions RefreshSession[]
@@ -58,4 +59,16 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("password_reset_tokens")
+}
+
+model GoogleChallenge {
+  id         String   @id @default(uuid()) @db.Uuid
+  secretHash String   @unique @map("secret_hash") @db.Char(64)
+  nonceHash  String   @map("nonce_hash") @db.Char(64)
+  intent     String   @db.VarChar(10)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("google_challenges")
 }

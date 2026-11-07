@@ -780,6 +780,70 @@ SMTP capture server: actual messages, cooldown/replacement, expiry, single use,
 concurrent redemption/refresh, hashing, session revocation, origin/rate controls,
 SMTP failure sanitization and health/readiness. No real external email is sent.
 
+## Google authentication - step 14
+
+Set `GOOGLE_CLIENT_ID` to a Google OAuth **Web application** client ID in the private
+backend `.env`; see the root README for Google Cloud configuration. No client
+secret, Google refresh token or Gmail/Drive scope is used. Missing/malformed client
+configuration disables Google with 503 without breaking password authentication.
+Production additionally requires an HTTPS frontend origin.
+
+`POST /api/v1/auth/google/challenge` accepts only `{ intent }`, where intent is
+`signup`, `login` or `link`. It returns a public client ID, random nonce and
+five-minute lifetime, and sets a host-only HttpOnly SameSite=Lax cookie scoped to
+`/api/v1/auth/google` (Secure in production). Only purpose-specific nonce/cookie
+hashes are stored. Expired records are removed when issuing challenges. One
+challenge cookie is shared by same-browser tabs; concurrent popups can supersede
+each other and must restart safely.
+
+`POST /api/v1/auth/google/complete` accepts `{ intent, credential }`, plus
+the exact existing `password` for linking.
+Both endpoints require the configured Origin before independent IP rate limits
+(30 challenges and 10 completions per 15 minutes). Strict validation returns safe
+400 errors. The completion consumes the unexpired browser-bound challenge once
+atomically before verification, including failed attempts; no automatic retry.
+
+The official `google-auth-library` verifies Google's cached/rotated public keys,
+signature, issuer and configured audience with a bounded network timeout. Additional
+checks require RS256, valid subject, verified email, strict expiry/issue time,
+authorized-party consistency when present, and the exact challenge nonce. Raw
+verification errors are discarded because the library can include credentials.
+
+The additive migration adds a unique nullable `users.google_subject` and a
+`google_challenges` table; existing records/password hashes remain untouched.
+Google subject, never a client-provided email or changing Google email, identifies
+returning users. Stored email/name are not silently replaced during login.
+
+Signup is explicit; an existing subject/email returns
+409 instead of being silently linked. New Google-only signup requires Google's
+authoritative Gmail/Workspace email. Other valid email providers remain supported
+by password signup and password-confirmed linking. Google-only accounts start
+without a password; the existing email recovery flow can set one.
+
+Linking proves both the signed Google identity and the existing Guardrail password
+for its normalized email. Password comparison runs before the transaction, then
+the user lock rechecks the exact verified hash/email and existing Google binding.
+This prevents a racing password reset from authorizing a stale link. A conflicting
+Google subject cannot replace another binding. Login creates no accounts. New
+account/binding and refresh-session creation commit together; unique constraints
+resolve concurrent signup/link conflicts. Safe profiles use the existing explicit
+allowlist, excluding Google subject, hashes and refresh tokens.
+
+Successful signup/login/link returns the ordinary login JSON and refresh cookie,
+using the same frontend session coordinator, guards, renewal and logout. The GIS
+script loads only after an explicit Google action and successful challenge.
+Cancellation, script failure and service errors preserve access to password login.
+Credentials stay in request/component memory, never local/session storage.
+
+`tests/google-identity.test.mjs` uses locally generated RSA keys with Google's real
+verifier; only certificate retrieval is mocked. The isolated database suite also
+tests real signed tokens, account/session creation, safe linking, stable subjects,
+replay, browser binding, expiry, concurrency, origin and throttling.
+`tests/google-signin.spec.ts` uses controlled GIS/API responses for signup/login,
+password linking, cancellation, missing configuration and secret-storage checks.
+These tests need no real Google credentials. Test a real popup after configuring
+your own authorized Web client ID.
+
 ## Documentation links
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)

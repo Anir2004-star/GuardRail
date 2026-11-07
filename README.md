@@ -220,7 +220,7 @@ Mailpit, which catches email on your computer instead of sending it to a real in
    `npm run dev` from the project root, in separate terminals.
 4. Visit `http://localhost:3000/forgot-password` and enter a registered email.
 5. Open `http://localhost:8025`, open the captured email, and follow its reset link.
-6. Choose a new password with at least 15 characters, uppercase, lowercase, a
+6. Choose a new password with at least 8 characters, uppercase, lowercase, a
    number and a special character (maximum 72 UTF-8 bytes). Then sign in separately.
 
 The link expires after 30 minutes and works once. Requesting a replacement after
@@ -237,6 +237,59 @@ The bounded email queue runs in memory; pending jobs can be lost on a process cr
 `tests/password-recovery.spec.ts` checks both forms, secret handling, errors and
 cross-tab session clearing with controlled API responses. Backend tests use actual
 SMTP captured locally and a disposable PostgreSQL database, with no external email.
+
+## Google sign-in (step 14)
+
+Login and signup now offer **Continue with Google**. Google signup creates an
+account and signs in. Google login requires a previously
+registered or linked Google identity; it never creates accounts implicitly.
+Existing password accounts use **Link existing account with Google** on the login
+page, enter their existing Guardrail password, and choose the matching Google
+account. Matching email alone never links an account.
+
+### Configure your Google client
+
+1. Open the [Google Auth Platform Clients page](https://console.cloud.google.com/auth/clients).
+   Select or create a project, then complete its Branding and Audience settings.
+   For a personal app, choose External; add your own email under test users when
+   the consent configuration is in Testing.
+2. Create an OAuth client with application type **Web application**.
+3. Add authorized JavaScript origins `http://localhost` and
+   `http://localhost:3000`. Add your HTTPS frontend origin for deployment.
+   No redirect URI is required for this JavaScript popup callback flow.
+4. Copy the client ID ending in `.apps.googleusercontent.com` into `backend/.env`:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=your-real-web-client-id.apps.googleusercontent.com
+   ```
+
+   Replace the entire sample value with Google's actual ID. No Google client
+   secret is needed. The backend supplies the public ID to the browser, so there
+   is no second frontend environment setting to keep in sync.
+5. From `backend`, run `npm run db:generate` and `npm run db:deploy` on a fresh
+   checkout. This machine's migration has already been applied. Restart the backend
+   and frontend, then test signup on `/signup` and later login on `/login`.
+
+Until the client ID is configured, the Google option shows a safe availability
+message and email/password authentication remains usable. Browser tests use a
+controlled Google SDK and backend responses; they do not authenticate a real
+Google account. A real popup smoke test still requires your configured client ID.
+
+Google identity is stored by its stable subject, with no Google access/refresh
+tokens or Gmail/Drive permissions. New Google-only accounts require a verified
+Google-hosted Gmail/Workspace email. For Google accounts using other email
+providers, register with any valid email/password first, then link with the
+existing password. Google profile names can be absent and remain nullable.
+
+The backend checks signature, audience, issuer, expiry, verified email and a
+single-use browser-bound nonce. A five-minute HttpOnly challenge cookie and
+database record prevent replay; starting another Google flow in a second tab
+replaces that browser's challenge, so finish one Google popup at a time. Guardrail
+sessions reuse the existing in-memory access-token and HttpOnly refresh-cookie
+system. Raw Google credentials and passwords are never stored in browser storage.
+
+See Google's [setup guide](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
+and [server verification guide](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
 
 ## Verification
 

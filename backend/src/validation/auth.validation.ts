@@ -25,7 +25,7 @@ export const emailSchema = z.string({ error: "Enter a valid email address." })
 export const registrationPasswordSchema = z.string({ error: "Enter a password." })
   .superRefine((password, context) => {
     const reject = (message: string) => context.addIssue({ code: "custom", message });
-    if (Array.from(password).length < 15) reject("Use at least 15 characters.");
+    if (Array.from(password).length < 8) reject("Use at least 8 characters.");
     if (Buffer.byteLength(password, "utf8") > 72) reject("Use no more than 72 UTF-8 bytes.");
     if (!/[A-Z]/.test(password)) reject("Include at least one uppercase letter.");
     if (!/[a-z]/.test(password)) reject("Include at least one lowercase letter.");

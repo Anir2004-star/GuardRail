@@ -804,10 +804,18 @@ input, select { accent-color: var(--plum); }
 .auth-box form > label { display: flex; flex-direction: column; gap: 8px; font-size: 11px; font-weight: 700; }
 .auth-box input:not([type=checkbox]) { height: 45px; padding: 0 13px; border: 1px solid var(--border); border-radius: 7px; outline: none; }
 .auth-box input:focus { border-color: var(--plum); box-shadow: 0 0 0 3px var(--plum-soft); }
+.password-input { position: relative; display: block; }
+.auth-box .password-input input { width: 100%; padding-right: 48px; }
+.password-toggle { position: absolute; inset: 0 0 0 auto; width: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+.password-toggle svg { width: 19px; height: 19px; }
+.password-toggle:hover { color: var(--plum); }
+.password-toggle:focus-visible { outline: 2px solid var(--plum); outline-offset: -4px; }
 .form-row { display: flex; justify-content: space-between; font-size: 10px; }
 .form-row a, .auth-foot a { color: var(--plum); font-weight: 700; }
 .checkbox { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .auth-submit { width: 100%; }
+.google-auth { display: grid; gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+.google-auth .text-button { justify-self: start; text-align: left; }
 .auth-foot { margin-top: 23px; color: var(--muted); font-size: 11px; text-align: center; }
 .auth-art { position: relative; overflow: hidden; display: grid; place-items: center; padding: 70px; color: white; background: var(--sidebar); }
 .auth-art::before, .auth-art::after { content: ""; position: absolute; border: 1px solid rgba(255,255,255,.08); border-radius: 50%; }
