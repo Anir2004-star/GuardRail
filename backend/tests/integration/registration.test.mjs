@@ -16,6 +16,7 @@ assert.equal(databaseUrl.pathname, `/${databaseName}`);
 assert.notEqual(databaseName, process.env.GUARDRAIL_DEVELOPMENT_DATABASE);
 
 const { registerUser } = await import("../../dist/services/auth.service.js");
+const { drainVerificationEmails } = await import("../../dist/services/email-verification.service.js");
 const { prisma, disconnectDatabase } = await import("../../dist/config/database.js");
 const { env } = await import("../../dist/config/env.js");
 const { app } = await import("../../dist/app.js");
@@ -38,6 +39,7 @@ after(async () => {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+  await drainVerificationEmails();
   await disconnectDatabase();
 });
 function request(body) {

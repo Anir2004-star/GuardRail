@@ -15,7 +15,8 @@ assert.match(databaseName ?? "", /^guardrail_registration_test_[a-f0-9]{16}$/);
 assert.equal(new URL(process.env.DATABASE_URL ?? "").pathname, `/${databaseName}`);
 assert.notEqual(databaseName, process.env.GUARDRAIL_DEVELOPMENT_DATABASE);
 
-const { registerUser, verifyLoginCredentials, createLoginAccess } = await import("../../dist/services/auth.service.js");
+const { registerVerifiedUser: registerUser } = await import("../helpers/verified-user.mjs");
+const { verifyLoginCredentials, createLoginAccess } = await import("../../dist/services/auth.service.js");
 const { verifyAccessToken } = await import("../../dist/auth/access-tokens.js");
 const { InvalidCredentialsError } = await import("../../dist/errors/auth.errors.js");
 const { prisma, disconnectDatabase } = await import("../../dist/config/database.js");

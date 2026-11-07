@@ -13,7 +13,8 @@ assert.match(databaseName ?? "", /^guardrail_registration_test_[a-f0-9]{16}$/);
 assert.equal(new URL(process.env.DATABASE_URL ?? "").pathname, `/${databaseName}`);
 assert.notEqual(databaseName, process.env.GUARDRAIL_DEVELOPMENT_DATABASE);
 
-const { registerUser, createLoginSession } = await import("../../dist/services/auth.service.js");
+const { registerVerifiedUser: registerUser } = await import("../helpers/verified-user.mjs");
+const { createLoginSession } = await import("../../dist/services/auth.service.js");
 const { createRefreshSession } = await import("../../dist/services/refresh-session.service.js");
 const { hashRefreshToken } = await import("../../dist/auth/refresh-tokens.js");
 const { verifyAccessToken } = await import("../../dist/auth/access-tokens.js");

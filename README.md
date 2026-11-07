@@ -7,7 +7,7 @@ Guardrail is an assistant for organizing Gmail and Google Drive content, reviewi
 The repository contains a complete frontend demo:
 
 - responsive public landing page;
-- signup connected to the real Express registration API;
+- signup connected to the Express API, with email verification and resend support;
 - sign-in and email password recovery connected to the Express API;
 - application shell with desktop and mobile navigation;
 - storage usage overview backed by Recharts;
@@ -20,7 +20,7 @@ The repository contains a complete frontend demo:
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Signup does not log the user in. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
+All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Password signup requires email verification before separate sign-in. Google signup can sign in using verified Google identity. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -290,6 +290,40 @@ system. Raw Google credentials and passwords are never stored in browser storage
 
 See Google's [setup guide](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
 and [server verification guide](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
+
+## Email verification (step 15)
+
+New email/password accounts must verify their inbox before signing in. Signup
+creates the account without a session, queues a verification email, clears the
+password fields and offers **Resend verification email**. Open the emailed link
+and choose **Verify email**; opening the page alone does not consume the link.
+After confirmation, sign in separately with the original password.
+
+To test locally:
+
+1. From `backend`, start the local services with
+   `docker compose --env-file .env.postgres --profile mail up -d`.
+2. On a fresh checkout, run `npm run db:generate` and `npm run db:deploy` there.
+   This machine's migration is already applied. Start the backend and frontend.
+3. Register a new email at `http://localhost:3000/signup`.
+4. Read its captured verification email at `http://localhost:8025`.
+5. Open the link, click **Verify email**, then use **Go to sign in**.
+
+Links expire after one hour by default and work once. Resends have a 60-second
+cooldown; a replacement invalidates older links. Expired/invalid pages offer a
+resend form. An unverified password login explains the requirement and offers
+resend without revealing the account status to someone with an incorrect password.
+
+Existing accounts retain access through an explicit migration exemption. They
+are not falsely marked verified and can voluntarily request a link at `/verify-email`.
+New Google-hosted Gmail/Workspace accounts use Google's verified email proof;
+linking a third-party email Google account still requires Guardrail verification.
+
+Mailpit catches local mail instead of sending to real inboxes. Real email delivery
+uses the same private SMTP settings as password recovery. A queued response does
+not guarantee delivery; use resend after fixing SMTP. The bounded in-process queue
+can lose pending jobs on a crash. Signup reports when mail cannot be queued without
+suggesting another account-creation attempt.
 
 ## Verification
 

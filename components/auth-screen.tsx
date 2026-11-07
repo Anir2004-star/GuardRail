@@ -12,6 +12,7 @@ import { SessionNotice } from "./session-manager";
 import { validateAccountPassword } from "@/lib/password-validation";
 import { requestPasswordReset, RESET_REQUEST_MESSAGE } from "@/lib/password-reset-api";
 import { GoogleSignIn } from "./google-signin";
+import { ResendVerification } from "./email-verification";
 
 type Fields = {
   firstName: string;
@@ -30,6 +31,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string>();
   const { register, handleSubmit, setError, resetField, formState: { errors, isSubmitting } } = useForm<Fields>({
     defaultValues: { firstName: "", middleName: "", lastName: "", email: "", password: "", confirm: "" },
   });
@@ -41,6 +43,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const submit = handleSubmit(async (data) => {
     if (googleBusy) return;
     setMessage("");
+    if (!signup) setVerificationEmail(undefined);
     const email = data.email.trim().toLowerCase();
     if (!z.string().email().safeParse(email).success) {
       setError("email", { message: "Enter a valid email address." });
@@ -80,12 +83,16 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
       resetField("password");
       resetField("confirm");
       setAccountCreated(true);
-      setMessage("Account created. Please sign in.");
+      setVerificationEmail(email);
+      setMessage(result.verificationEmailQueued === false
+        ? "Account created, but the verification email could not be queued. Use Resend verification email."
+        : "Account created. Check your email to verify your address before signing in.");
       return;
     }
     if (signedIn) return;
     const result = await signInAccount({ email, password: data.password });
     if (!result.ok) {
+      if (result.verificationRequired) { setVerificationEmail(email); resetField("password"); }
       setError("root.server", { message: result.message });
       return;
     }
@@ -103,7 +110,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
           <div>
             <span className="eyebrow">{signup ? "ACCOUNT REGISTRATION" : forgot ? "PASSWORD RECOVERY" : "ACCOUNT SIGN-IN"}</span>
             <h1>{title}</h1>
-            <p>{signup ? "Create a real account. Sign in separately after registration." : forgot ? "Enter your email. If an account exists, we'll send password reset instructions." : "Sign in with your registered email and password."}</p>
+            <p>{signup ? "Create your account, verify your email, then sign in." : forgot ? "Enter your email. If an account exists, we'll send password reset instructions." : "Sign in with your registered email and password."}</p>
           </div>
           <SessionNotice />
           <form onSubmit={submit} noValidate>
@@ -153,7 +160,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
               <label htmlFor="auth-confirm-password">
                 Confirm password
                 <span className="password-input">
-                <input id="auth-confirm-password" type={showConfirm ? "text" : "password"} {...register("confirm", { required: "Confirm your password." })} autoComplete="new-password" readOnly={accountCreated} aria-invalid={!!errors.confirm} aria-describedby={errors.confirm ? "confirm-error" : undefined} />
+                <input id="auth-confirm-password" type={showConfirm ? "text" : "password"} {...register("confirm", { required: "Confirm your password." })} autoComplete="new-password" readOnly={accountCreated} aria-label="Confirm password" aria-invalid={!!errors.confirm} aria-describedby={errors.confirm ? "confirm-error" : undefined} />
                 <button className="password-toggle" type="button" aria-label={showConfirm ? "Hide confirm password" : "Show confirm password"} aria-pressed={showConfirm} aria-controls="auth-confirm-password" disabled={accountCreated} onClick={() => setShowConfirm((visible) => !visible)}>{showConfirm ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>
                 </span>
                 {errors.confirm && <span id="confirm-error" className="field-error" role="alert">{errors.confirm.message}</span>}
@@ -164,6 +171,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
             {errors.root?.server && <div className="field-error" role="alert">{errors.root.server.message}</div>}
             {message && <div className="feedback" role="status">{message}{signup && accountCreated && <> <Link href="/login">Go to sign in</Link></>}</div>}
           </form>
+          {verificationEmail && <ResendVerification email={verificationEmail} />}
           {!forgot && <GoogleSignIn key={mode} mode={signup ? "signup" : "login"} disabled={isSubmitting || signedIn || accountCreated} onBusy={setGoogleBusy} onSuccess={() => { resetField("password"); resetField("confirm"); setSignedIn(true); router.replace("/app/dashboard"); }} />}
           <p className="auth-foot">{signup || forgot ? <Link href="/login">Back to sign in</Link> : <>New here? <Link href="/signup">Create an account</Link></>}</p>
           <Link className="full-link" href="/app/dashboard" onClick={enterDemoSession}>Explore without signing in →</Link>

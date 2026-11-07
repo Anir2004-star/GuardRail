@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import nodemailer from "nodemailer";
+import { sendAccountMail } from "./account-mail.service.js";
 import { prisma } from "../config/database.js";
 import { env } from "../config/env.js";
 import { passwordResetEnv as mail } from "../config/password-reset.js";
@@ -13,14 +13,7 @@ let worker: Promise<void> | undefined;
 
 async function sendMail(email: string, subject: string, text: string) {
   if (!mail.host || !mail.from) throw new PasswordResetUnavailableError();
-  const transport = nodemailer.createTransport({
-    host: mail.host, port: mail.port, secure: mail.secure, requireTLS: mail.requireTLS,
-    ...(mail.user && mail.password ? { auth: { user: mail.user, pass: mail.password } } : {}),
-    connectionTimeout: 3000, greetingTimeout: 3000, socketTimeout: 5000,
-    tls: { minVersion: "TLSv1.2" }, logger: false, debug: false,
-    disableFileAccess: true, disableUrlAccess: true,
-  });
-  await transport.sendMail({ from: mail.from, to: email, subject, text });
+  await sendAccountMail(email, subject, text);
 }
 
 async function deliverReset(email: string) {

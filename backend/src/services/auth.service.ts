@@ -8,12 +8,13 @@ import { InvalidCredentialsError } from "../errors/auth.errors.js";
 import { createAccessToken } from "../auth/access-tokens.js";
 import { createRefreshSession } from "./refresh-session.service.js";
 import { safeUserFields } from "../auth/user-profile.js";
+import { assertEmailAccess } from "../auth/email-verification.js";
 
 // Precompute once per process at the configured cost, not once per failed login.
 // Unknown/passwordless accounts still perform a real asynchronous comparison.
 const dummyPasswordHash = bcrypt.hash(randomBytes(32).toString("hex"), env.BCRYPT_ROUNDS);
 
-const credentialUserFields = { ...safeUserFields, passwordHash: true } satisfies Prisma.UserSelect;
+const credentialUserFields = { ...safeUserFields, passwordHash: true, emailVerifiedAt: true, emailVerificationExempt: true } satisfies Prisma.UserSelect;
 type CredentialUser = Prisma.UserGetPayload<{ select: typeof credentialUserFields }>;
 
 function safeProfile(user: CredentialUser) {
@@ -64,7 +65,9 @@ export async function verifyPasswordAccount(input: unknown) {
 }
 
 export async function verifyLoginCredentials(input: unknown) {
-  return safeProfile(await verifyPasswordAccount(input));
+  const user = await verifyPasswordAccount(input);
+  assertEmailAccess(user);
+  return safeProfile(user);
 }
 
 // Internal access-only building block. Use createLoginSession for full login.
@@ -86,6 +89,7 @@ export async function createLoginSession(input: unknown) {
     if (!current || current.passwordHash !== verified.passwordHash || current.email !== verified.email) {
       throw new InvalidCredentialsError();
     }
+    assertEmailAccess(current);
     const access = await createAccessToken(current.id);
     const refresh = await createRefreshSession(transaction, current.id);
     return { body: { user: safeProfile(current), ...access }, refresh };

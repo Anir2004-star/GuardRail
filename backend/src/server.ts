@@ -3,6 +3,7 @@ import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { disconnectDatabase } from "./config/database.js";
 import { drainPasswordResetEmails } from "./services/password-reset.service.js";
+import { drainVerificationEmails } from "./services/email-verification.service.js";
 
 let shuttingDown = false;
 
@@ -33,7 +34,7 @@ function shutDown(signal: NodeJS.Signals): void {
       process.exit(1);
     }
     // Keep the existing deadline active while the database pool drains.
-    void drainPasswordResetEmails().then(disconnectDatabase).then(() => {
+    void Promise.all([drainPasswordResetEmails(), drainVerificationEmails()]).then(disconnectDatabase).then(() => {
       clearTimeout(forceTimer);
       console.log("Guardrail backend stopped.");
       process.exit(0);

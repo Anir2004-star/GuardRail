@@ -7,9 +7,11 @@ import { validateLogin } from "../middleware/validate-login.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { validateForgotPassword, validateResetPassword } from "../middleware/validate-password-reset.js";
 import { googleAuthRouter } from "./google-auth.routes.js";
+import { emailVerificationRouter } from "./email-verification.routes.js";
 
 export const authRouter = Router();
 authRouter.use("/google", googleAuthRouter);
+authRouter.use(emailVerificationRouter);
 
 authRouter.get("/me", requireAuth, currentUserController);
 

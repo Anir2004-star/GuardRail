@@ -15,7 +15,7 @@ async function fillSignup(page: Page) {
   await page.getByLabel("Last name", { exact: true }).fill(" User ");
   await page.getByLabel("Email address").fill(" Signup+Example@Example.ORG ");
   await page.getByLabel("Password", { exact: true }).fill(samplePassword);
-  await page.getByLabel("Confirm password").fill(samplePassword);
+  await page.getByLabel("Confirm password", { exact: true }).fill(samplePassword);
 }
 
 async function mockSignup(page: Page, handler: (route: Route) => Promise<void>) {
@@ -57,11 +57,11 @@ test("signup sends only registration fields, shows pending/success and never sav
   } finally {
     release();
   }
-  await expect(page.getByRole("status")).toContainText("Account created. Please sign in.");
+  await expect(page.getByRole("status")).toContainText("Account created. Check your email to verify your address before signing in.");
   await expect(page).toHaveURL(/\/signup$/);
   await expect(page.getByRole("button", { name: "Account created", exact: true })).toBeDisabled();
   await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
-  await expect(page.getByLabel("Confirm password")).toHaveValue("");
+  await expect(page.getByLabel("Confirm password", { exact: true })).toHaveValue("");
   expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual(storageBefore);
   expect(postCount).toBe(1);
   await page.getByRole("link", { name: "Go to sign in", exact: true }).click();
@@ -85,7 +85,7 @@ test("signup maps backend validation errors to fields and supports correcting th
   await expect(page.locator("#email-error")).toHaveText("Check your email address.");
   await expect(page.getByRole("button", { name: "Create account", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Account created. Please sign in.");
+  await expect(page.getByRole("status")).toContainText("Account created. Check your email to verify your address before signing in.");
 });
 
 test("signup shows a duplicate-email error without navigating or revealing server details", async ({ page }) => {

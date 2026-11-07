@@ -10,6 +10,7 @@ import { createRefreshSession } from "./refresh-session.service.js";
 import { verifyPasswordAccount } from "./auth.service.js";
 import { safeUserFields } from "../auth/user-profile.js";
 import { Prisma } from "../generated/prisma/client.js";
+import { assertEmailAccess } from "../auth/email-verification.js";
 
 const cookieName = "guardrail_google_challenge";
 const cookieOptions = () => ({ ...refreshCookieOptions(), path: "/api/v1/auth/google" });
@@ -65,22 +66,24 @@ export async function completeGoogleSignIn(input: unknown, request: Pick<Request
           throw new GoogleAuthError(409, "GOOGLE_ACCOUNT_EXISTS", "Account already exists. Sign in, or link it using its password.");
         }
         if (!identity.authoritativeEmail) throw new GoogleAuthError(409, "GOOGLE_EMAIL_VERIFICATION_REQUIRED", "Register with email and password first, then link your Google account.");
-        user = await transaction.user.create({ data: { googleSubject: identity.subject, email: identity.email, name: identity.name, firstName: identity.firstName, lastName: identity.lastName }, select: { id: true } });
+        user = await transaction.user.create({ data: { googleSubject: identity.subject, email: identity.email, name: identity.name, firstName: identity.firstName, lastName: identity.lastName, emailVerifiedAt: new Date() }, select: { id: true } });
       } else if (data.intent === "link") {
         if (!verified || (user && user.id !== verified.id)) throw invalidGoogle();
         await transaction.$queryRaw`SELECT "id" FROM "users" WHERE "id" = ${verified.id}::uuid FOR UPDATE`;
         const current = await transaction.user.findUnique({ where: { id: verified.id }, select: { id: true, email: true, passwordHash: true, googleSubject: true } });
         // Check the verified snapshot under the lock; keep bcrypt outside the transaction.
         if (!current || current.email !== identity.email || current.passwordHash !== verified.passwordHash || (current.googleSubject && current.googleSubject !== identity.subject)) throw invalidGoogle();
-        user = await transaction.user.update({ where: { id: current.id }, data: { googleSubject: identity.subject }, select: { id: true } });
+        user = await transaction.user.update({ where: { id: current.id }, data: { googleSubject: identity.subject, ...(identity.authoritativeEmail ? { emailVerifiedAt: new Date(), emailVerificationExempt: false } : {}) }, select: { id: true } });
       } else if (!user) {
         // Login never creates an account or silently links a matching email.
         throw new GoogleAuthError(409, "GOOGLE_NOT_REGISTERED", "Sign up with Google first, or link your existing account using its password.");
       }
       if (!user) throw invalidGoogle();
       await transaction.$queryRaw`SELECT "id" FROM "users" WHERE "id" = ${user.id}::uuid FOR UPDATE`;
-      const profile = await transaction.user.findUnique({ where: { id: user.id }, select: safeUserFields });
-      if (!profile) throw invalidGoogle();
+      const account = await transaction.user.findUnique({ where: { id: user.id }, select: { ...safeUserFields, emailVerifiedAt: true, emailVerificationExempt: true } });
+      if (!account) throw invalidGoogle();
+      const { emailVerifiedAt, emailVerificationExempt, ...profile } = account;
+      assertEmailAccess({ emailVerifiedAt, emailVerificationExempt });
       const access = await createAccessToken(user.id);
       const refresh = await createRefreshSession(transaction, user.id);
       return { body: { user: profile, ...access }, refresh };

@@ -15,7 +15,7 @@ assert.notEqual(databaseName, process.env.GUARDRAIL_DEVELOPMENT_DATABASE);
 const { app } = await import("../../dist/app.js");
 const { env } = await import("../../dist/config/env.js");
 const { prisma, disconnectDatabase } = await import("../../dist/config/database.js");
-const { registerUser } = await import("../../dist/services/auth.service.js");
+const { registerVerifiedUser: registerUser } = await import("../helpers/verified-user.mjs");
 const { verifyAccessToken } = await import("../../dist/auth/access-tokens.js");
 const { hashRefreshToken } = await import("../../dist/auth/refresh-tokens.js");
 const { REFRESH_COOKIE_NAME } = await import("../../dist/auth/refresh-cookie.js");

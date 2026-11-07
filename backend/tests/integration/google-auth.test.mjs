@@ -17,7 +17,9 @@ const { app } = await import("../../dist/app.js");
 const { env } = await import("../../dist/config/env.js");
 const { prisma, disconnectDatabase } = await import("../../dist/config/database.js");
 const { createGoogleChallenge, completeGoogleSignIn } = await import("../../dist/services/google-auth.service.js");
-const { registerUser, verifyLoginCredentials } = await import("../../dist/services/auth.service.js");
+const { registerVerifiedUser: registerUser } = await import("../helpers/verified-user.mjs");
+const { verifyLoginCredentials } = await import("../../dist/services/auth.service.js");
+const { registerUser: registerPendingUser } = await import("../../dist/services/auth.service.js");
 const { verifyAccessToken } = await import("../../dist/auth/access-tokens.js");
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 mock.method(OAuth2Client.prototype, "getFederatedSignonCertsAsync", async () => ({ certs: { test: keys.publicKey.export({ type: "spki", format: "pem" }) } }));
@@ -50,6 +52,7 @@ test("explicit Google signup creates a passwordless account and normal safe sess
   const stored = await prisma.user.findUnique({ where: { id: result.body.user.id } });
   assert.equal(stored.passwordHash, null);
   assert.equal(stored.googleSubject, signup.payload.sub);
+  assert.ok(stored.emailVerifiedAt);
   const login = await flow("login", { sub: signup.payload.sub, email: `changed-${randomUUID()}@gmail.com` });
   assert.equal((await complete(login)).body.user.id, stored.id);
   assert.equal(await prisma.refreshSession.count({ where: { userId: stored.id } }), 2);
@@ -76,6 +79,18 @@ test("link requires correct existing password and binds Google subject without c
   assert.equal((await complete(await flow("login", { sub: link.payload.sub, email: user.email }))).body.user.id, user.id);
   await assert.rejects(complete(await flow("link", { email: user.email }), { password }), rejected(401));
 });
+test("Google linking verifies pending accounts only when Google is authoritative for their matching email", async () => {
+  const password = "Pending Password!42";
+  const gmail = await registerPendingUser({ firstName: "Pending", lastName: "Gmail", email: `pending-${randomUUID()}@gmail.com`, password });
+  const linked = await flow("link", { email: gmail.email });
+  assert.equal((await complete(linked, { password })).body.user.id, gmail.id);
+  assert.ok((await prisma.user.findUnique({ where: { id: gmail.id } })).emailVerifiedAt);
+  const external = await registerPendingUser({ firstName: "Pending", lastName: "External", email: `pending-${randomUUID()}@example.org`, password });
+  await assert.rejects(complete(await flow("link", { email: external.email }), { password }), (error) => error.code === "EMAIL_NOT_VERIFIED");
+  const unchanged = await prisma.user.findUnique({ where: { id: external.id } });
+  assert.equal(unchanged.emailVerifiedAt, null); assert.equal(unchanged.googleSubject, null);
+});
+
 test("browser binding, exact intent, expiry, one use and concurrent redemption are enforced", async () => {
   const value = await flow("signup");
   await assert.rejects(completeGoogleSignIn(value.data, { headers: {} }, response()), rejected(401));

@@ -4,6 +4,7 @@ import { verifyAccessToken } from "../auth/access-tokens.js";
 import { safeUserFields, type SafeUser } from "../auth/user-profile.js";
 import { prisma } from "../config/database.js";
 import { InvalidAccessTokenError } from "../errors/auth.errors.js";
+import { assertEmailAccess } from "../auth/email-verification.js";
 
 export type AuthenticatedHandler = RequestHandler<ParamsDictionary, unknown, unknown, Query, { authUser: SafeUser }>;
 
@@ -24,8 +25,10 @@ export const requireAuth: AuthenticatedHandler = async (request, response, next)
   const verified = await verifyAccessToken(readBearerToken(request));
   // Only the verified subject identifies the account. Client IDs, cookies and
   // decoded-but-unverified claims never supply this lookup key.
-  const user = await prisma.user.findUnique({ where: { id: verified.userId }, select: safeUserFields });
+  const user = await prisma.user.findUnique({ where: { id: verified.userId }, select: { ...safeUserFields, emailVerifiedAt: true, emailVerificationExempt: true } });
   if (!user) throw new InvalidAccessTokenError();
-  response.locals.authUser = user;
+  const { emailVerifiedAt, emailVerificationExempt, ...profile } = user;
+  assertEmailAccess({ emailVerifiedAt, emailVerificationExempt });
+  response.locals.authUser = profile;
   next();
 };

@@ -5,6 +5,7 @@ import { revokeRefreshFamily, rotateRefreshSession } from "../services/refresh-s
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
 import type { AuthenticatedHandler } from "../middleware/require-auth.js";
 import { requestPasswordReset, resetPassword } from "../services/password-reset.service.js";
+import { requestEmailVerification } from "../services/email-verification.service.js";
 
 export const currentUserController: AuthenticatedHandler = (_request, response) => {
   response.status(200).json({ user: response.locals.authUser });
@@ -15,8 +16,14 @@ export const registerController: RequestHandler = async (
   response
 ) => {
   const user = await registerUser(request.body);
-
-  response.status(201).json({ user });
+  let verificationEmailQueued = true;
+  try { requestEmailVerification({ email: user.email }); } catch {
+    // Account creation already succeeded. Preserve 201 and offer an explicit
+    // resend instead of suggesting a duplicate account-creation retry.
+    verificationEmailQueued = false;
+    console.error("Registration verification email could not be queued");
+  }
+  response.status(201).json({ user, emailVerificationRequired: true, verificationEmailQueued });
 };
 
 // The public route applies origin, rate-limit and validation middleware first.

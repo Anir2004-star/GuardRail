@@ -5,6 +5,7 @@ export type GoogleIntent = "login" | "signup" | "link";
 export type GoogleInput = { intent: GoogleIntent; credential: string; password?: string };
 const apiUrl = () => (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
 function failure(status: number, code?: string): string {
+  if (code === "EMAIL_NOT_VERIFIED") return "Verify your email before linking or signing in. Check your inbox or use Resend verification email.";
   if (status === 503) return "Google sign-in is unavailable. Use email and password, or try again later.";
   if (status === 403) return "Google sign-in is unavailable from this website address.";
   if (status === 429) return "Too many Google sign-in attempts. Please try again later.";

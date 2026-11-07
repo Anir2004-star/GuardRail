@@ -21,7 +21,7 @@ export type LoginSession = z.infer<typeof loginResponseSchema> & { expiresAt: nu
 export type LoginInput = { email: string; password: string };
 export type LoginResult =
   | { ok: true; session: LoginSession }
-  | { ok: false; message: string; fields?: Partial<Record<keyof LoginInput, string>> };
+  | { ok: false; message: string; verificationRequired?: boolean; fields?: Partial<Record<keyof LoginInput, string>> };
 
 export async function loginAccount(input: LoginInput): Promise<LoginResult> {
   const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
@@ -46,7 +46,12 @@ export async function loginAccount(input: LoginInput): Promise<LoginResult> {
       return { ok: false, message: "Check your email and password and try again." };
     }
     if (response.status === 401) return { ok: false, message: "Email or password is incorrect." };
-    if (response.status === 403) return { ok: false, message: "Sign-in is unavailable from this website address." };
+    if (response.status === 403) {
+      const body: unknown = await response.json().catch(() => undefined);
+      const error = z.object({ error: z.object({ code: z.literal("EMAIL_NOT_VERIFIED") }) }).safeParse(body);
+      return error.success ? { ok: false, verificationRequired: true, message: "Verify your email before signing in." }
+        : { ok: false, message: "Sign-in is unavailable from this website address." };
+    }
     if (response.status === 429) return { ok: false, message: "Too many login attempts. Please try again later." };
     return { ok: false, message: "We couldn't sign you in. Please try again later." };
   } catch (error) {

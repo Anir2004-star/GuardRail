@@ -338,7 +338,7 @@ updating existing emails, then adds a normalized-email check. The existing uniqu
 email constraint remains authoritative for simultaneous requests. The central
 handler recognizes both Prisma target fields and the Prisma 7 pg adapter's
 unique-index metadata, returning HTTP 409 with EMAIL_ALREADY_REGISTERED.
-This message reveals account existence; email verification is not yet built.
+This message reveals account existence. Step 15 below adds email ownership verification.
 Other database errors remain generic and their values are not logged.
 
 The public `POST /api/v1/auth/register` route is now connected in `src/app.ts`.
@@ -843,6 +843,88 @@ replay, browser binding, expiry, concurrency, origin and throttling.
 password linking, cancellation, missing configuration and secret-storage checks.
 These tests need no real Google credentials. Test a real popup after configuring
 your own authorized Web client ID.
+
+## Email verification - step 15
+
+New password registrations have `emailVerifiedAt = null` and
+`emailVerificationExempt = false`. The registration controller attempts to enqueue
+an email after account creation and returns 201 with the unchanged safe user
+profile plus `emailVerificationRequired: true` and `verificationEmailQueued`.
+Account creation stays successful if mail configuration/capacity prevents enqueue;
+the frontend reports this and offers resend, avoiding duplicate registration retries.
+The internal `registerUser` service creates pending accounts without sending mail.
+
+The additive `20261108000100_add_email_verification` migration adds nullable
+`email_verified_at`, the explicit exemption flag, and `email_verification_tokens`.
+It preserves every existing row and marks only pre-migration accounts exempt from
+the new login requirement. It does not invent verified timestamps. New rows default
+to non-exempt. Existing accounts can verify voluntarily; confirmation removes the
+exemption. This compatibility policy preserves existing sessions/access, but does
+not claim that every historic account owns its inbox. Any future enforcement for
+those accounts requires an explicit rollout rather than silently flipping the flag.
+
+`POST /api/v1/auth/resend-verification` accepts only `{ email }`, normalizes it using
+the existing all-provider email rules, queues before lookup, and returns generic
+202 for pending, unknown, already verified and cooldown-limited accounts. Missing
+SMTP configuration or a full queue returns a uniform 503 before lookup. The IP
+limit is 10 requests per 15 minutes, independent of signup/login/reset limits.
+
+`POST /api/v1/auth/verify-email` accepts only `{ token }`. Invalid, malformed,
+expired, already used and superseded tokens receive the same safe 400. Success
+returns an empty 204, without access tokens, refresh cookies or automatic login.
+Its independent IP limit is 20 requests per 15 minutes. Both routes require the
+configured exact Origin before limiting/validation and return no-store responses.
+
+Verification tokens contain 32 random bytes. Only a purpose-specific SHA-256 hash
+is stored, separately from password-reset/refresh tokens; each row is bound to its
+user and exact normalized email. The default expiry is 3600 seconds; configure
+`EMAIL_VERIFICATION_TTL_SECONDS` within 300-86400. Per-account resends have a
+60-second cooldown. New links invalidate older unused links. A failed SMTP send
+invalidates the newly issued token and logs only a static message. SMTP delivery is
+asynchronous and is not guaranteed by 201/202 acknowledgement.
+
+Issuance and confirmation lock the same user row used by login/refresh/reset.
+Confirmation rechecks the email snapshot, expiry and use status under the lock,
+sets the verified timestamp, removes the exemption, and consumes all unused links
+in one transaction. Concurrent confirmations have one winner. A changed email
+cannot be verified using a token for the old address.
+
+Correct password logins for pending accounts return 403 `EMAIL_NOT_VERIFIED`;
+incorrect/unknown/passwordless credentials retain the generic 401. The same check
+protects access-only login assembly, refresh rotation and protected account reads.
+Internal verification fields never enter safe user JSON. Password reset remains
+a separate purpose and does not silently bypass the verification requirement.
+
+New authoritative Gmail/Workspace Google signups save a verified timestamp using
+Google's signed proof. Password-confirmed linking can verify a pending account only
+when Google is authoritative for the exact matching email; third-party email
+linking cannot bypass verification. Existing Google identities retain the explicit
+migration exemption if ownership has not otherwise been verified.
+
+The public `/verify-email` page reads the fragment token into component memory,
+removes it from the URL, sets no-referrer/noindex metadata, and requires an explicit
+button click before POST. It creates no session, sends no cookies and does not
+change any existing browser session. It handles invalid/expired links, resend,
+service failures and uncertain responses without automatic token replay. The
+signup/login screens offer resend using the submitted email; passwords are cleared.
+
+Verification shares the hardened SMTP sender with password recovery, while using
+its own bounded 100-job in-memory queue. Shutdown drains both queues within the
+existing deadline. Pending jobs are not durable across crashes/restarts; multi-node
+deployment still needs a durable queue/shared rate limiting. Local Mailpit never
+relays mail externally. Configure your real provider only in the private backend
+environment when real inbox delivery is wanted.
+
+Tests use generated secrets, captured loopback SMTP and a disposable database.
+The migration test executes the actual migration in a transactional temporary
+schema with an existing account to check preservation and new-row defaults.
+Unrelated auth tests now create explicitly verified fixtures; production code has
+no test-environment authentication bypass. The runner overrides inherited SMTP
+settings to loopback, preventing accidental mail to a real provider. Browser tests
+use controlled responses and exercise confirmation, resend, pending login, URL
+secret removal, cookie isolation, expiry and uncertain outcomes.
+
+References: [OWASP email validation and verification](https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html).
 
 ## Documentation links
 

@@ -31,6 +31,10 @@ const childEnvironment = {
   DATABASE_URL: testUrl.toString(),
   GUARDRAIL_REGISTRATION_TEST_DATABASE: databaseName,
   GUARDRAIL_DEVELOPMENT_DATABASE: originalUrl.pathname.slice(1),
+  // Never inherit a real mail provider when running isolated HTTP registrations.
+  // Mail-specific suites replace these with their own loopback capture server.
+  SMTP_HOST: "127.0.0.1", SMTP_PORT: "1", SMTP_SECURE: "false",
+  SMTP_USER: "", SMTP_PASSWORD: "", MAIL_FROM: "guardrail@example.invalid",
 };
 
 try {
@@ -42,8 +46,8 @@ try {
   ], { cwd: backendDirectory, env: childEnvironment, timeout: 60_000 });
   console.log("PASS: committed migrations applied to a new isolated test database.");
   const result = await execute(process.execPath, [
-    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs", "tests/integration/login-credentials.test.mjs", "tests/integration/refresh-sessions.test.mjs", "tests/integration/login-route.test.mjs", "tests/integration/refresh-route.test.mjs", "tests/integration/logout-route.test.mjs", "tests/integration/current-user.test.mjs", "tests/integration/password-recovery.test.mjs", "tests/integration/google-auth.test.mjs",
-  ], { cwd: backendDirectory, env: childEnvironment, timeout: 120_000 });
+    "--test", "--test-concurrency=1", "tests/integration/registration.test.mjs", "tests/integration/login-credentials.test.mjs", "tests/integration/refresh-sessions.test.mjs", "tests/integration/login-route.test.mjs", "tests/integration/refresh-route.test.mjs", "tests/integration/logout-route.test.mjs", "tests/integration/current-user.test.mjs", "tests/integration/password-recovery.test.mjs", "tests/integration/google-auth.test.mjs", "tests/integration/email-verification.test.mjs",
+  ], { cwd: backendDirectory, env: childEnvironment, timeout: 180_000 });
   console.log(result.stdout.trim());
 } catch (error) {
   // Test output uses sample data; never print subprocess arguments or database URLs.

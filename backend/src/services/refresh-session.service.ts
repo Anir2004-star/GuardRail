@@ -6,6 +6,7 @@ import { prisma } from "../config/database.js";
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
 import { createAccessToken, type AccessTokenResult } from "../auth/access-tokens.js";
 import { safeUserFields } from "../auth/user-profile.js";
+import { assertEmailAccess } from "../auth/email-verification.js";
 
 export type RefreshSessionResult = Readonly<{
   sessionId: string;
@@ -66,8 +67,10 @@ export async function rotateRefreshSession(rawToken: unknown): Promise<RefreshRe
       return null;
     }
     if (session.expiresAt.getTime() <= now.getTime()) return null;
-    const user = await transaction.user.findUnique({ where: { id: session.userId }, select: safeUserFields });
-    if (!user) return null;
+    const account = await transaction.user.findUnique({ where: { id: session.userId }, select: { ...safeUserFields, emailVerifiedAt: true, emailVerificationExempt: true } });
+    if (!account) return null;
+    const { emailVerifiedAt, emailVerificationExempt, ...user } = account;
+    assertEmailAccess({ emailVerifiedAt, emailVerificationExempt });
 
     const token = generateRefreshToken();
     const id = randomUUID();

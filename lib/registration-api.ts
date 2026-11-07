@@ -7,7 +7,7 @@ export type RegistrationFields = {
 };
 
 export type RegistrationResult =
-  | { ok: true }
+  | { ok: true; verificationEmailQueued?: boolean }
   | { ok: false; message: string; fields?: Partial<Record<keyof RegistrationFields, string>> };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -39,7 +39,7 @@ export async function registerAccount(input: RegistrationFields): Promise<Regist
     if (response.status === 201) {
       const user = record(record(body)?.user);
       return typeof user?.id === "string" && user.id.length > 0
-        ? { ok: true }
+        ? { ok: true, verificationEmailQueued: record(body)?.verificationEmailQueued !== false }
         : { ok: false, message: "The signup service returned an unexpected response. Please try again later." };
     }
     if (response.status === 409) {
