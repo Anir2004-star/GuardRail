@@ -325,6 +325,25 @@ not guarantee delivery; use resend after fixing SMTP. The bounded in-process que
 can lose pending jobs on a crash. Signup reports when mail cannot be queued without
 suggesting another account-creation attempt.
 
+## Real email delivery with Gmail (step 16)
+
+Follow [the Gmail SMTP setup guide](backend/docs/gmail-smtp.md) to enable 2-Step
+Verification, create a private Google App Password, and save the six SMTP settings
+in `backend/.env`. Gmail SMTP is separate from Google sign-in credentials. No SMTP
+password belongs in frontend configuration, chat or GitHub.
+
+From `backend`, use `npm run mail:verify` to test connection/TLS/authentication
+without sending email. Then explicitly send a plain test to an inbox you control:
+
+```cmd
+npm run mail:test -- --to your-recipient@gmail.com
+```
+
+The command reports SMTP acceptance, not guaranteed inbox delivery. Restart the
+backend after updating the environment, then test signup verification and password
+reset in the real inbox. Automated tests only use a loopback SMTP capture server.
+Mailpit remains the default until private Gmail SMTP credentials are configured.
+
 ## Verification
 
 ```bash

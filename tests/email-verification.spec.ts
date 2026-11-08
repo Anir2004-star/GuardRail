@@ -70,7 +70,7 @@ test("verification strips the secret URL, waits for manual confirmation, omits c
   expect(posts).toBe(0);
   await expect(page.locator("body")).not.toContainText(token);
   await page.getByRole("button", { name: "Verify email", exact: true }).click();
-  await expect(page.locator(".auth-box").getByRole("status")).toHaveText("Email verified. Sign in with your password to continue.");
+  await expect(page.locator(".auth-box").getByRole("status")).toHaveText("Your email address is confirmed. You can now sign in to your workspace.");
   await expect(page).toHaveURL(/\/verify-email$/);
   expect(posts).toBe(1);
   expect((await context.cookies()).find((cookie) => cookie.name === "guardrail_refresh")?.value).toBe("existing-private-cookie");
@@ -102,7 +102,7 @@ test("lost verification response is reported honestly without automatic retry", 
   await page.getByRole("button", { name: "Verify email", exact: true }).click();
   await expect(page.locator(".auth-box").getByRole("alert")).toHaveText("Could not confirm email verification. Try signing in, or request a new link.");
   expect(posts).toBe(1);
-  await expect(page.getByText("Email verified. Sign in with your password to continue.")).toHaveCount(0);
+  await expect(page.getByText("Your email address is confirmed. You can now sign in to your workspace.")).toHaveCount(0);
 });
 for (const [status, expected] of [[403, "Email verification is unavailable from this website address."], [429, "Too many email verification attempts. Please try again later."], [503, "Email verification is temporarily unavailable. Please try again later."]] as const) {
   test(`resend ${status} shows a safe retryable error`, async ({ page, context }) => {

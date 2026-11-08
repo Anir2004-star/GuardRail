@@ -24,7 +24,10 @@ export function loadPasswordResetEnvironment(source: NodeJS.ProcessEnv = process
   const secure = boolean(source.SMTP_SECURE, "SMTP_SECURE");
   const local = ["localhost", "127.0.0.1", "::1"].includes(host ?? "");
   const user = source.SMTP_USER || undefined;
-  const password = source.SMTP_PASSWORD || undefined;
+  const gmail = host?.toLowerCase() === "smtp.gmail.com";
+  // Google displays App Passwords in groups. Normalize only those display spaces;
+  // other providers' passwords and all user account passwords remain unchanged.
+  const password = (gmail ? source.SMTP_PASSWORD?.replace(/ /g, "") : source.SMTP_PASSWORD) || undefined;
   if (Boolean(user) !== Boolean(password) || (user && /[\r\n\0]/.test(user))) {
     throw new Error("Invalid password reset configuration: configure SMTP_USER and SMTP_PASSWORD together.");
   }
@@ -32,10 +35,22 @@ export function loadPasswordResetEnvironment(source: NodeJS.ProcessEnv = process
   if (from !== undefined && !z.email().safeParse(from).success) {
     throw new Error("Invalid password reset configuration: MAIL_FROM must be an email address.");
   }
+  const port = integer(source.SMTP_PORT, secure ? 465 : local && !production ? 1025 : 587, 1, 65535, "SMTP_PORT");
+  if (gmail) {
+    if (!user || !z.email().safeParse(user).success || !password || !/^[A-Za-z0-9]{16}$/.test(password)) {
+      throw new Error("Invalid password reset configuration: Gmail requires SMTP_USER and a 16-character Google App Password.");
+    }
+    if (!from || from.toLowerCase() !== user.toLowerCase()) {
+      throw new Error("Invalid password reset configuration: Gmail MAIL_FROM must match SMTP_USER.");
+    }
+    if ((port !== 587 || secure) && (port !== 465 || !secure)) {
+      throw new Error("Invalid password reset configuration: Gmail uses port 587 with SMTP_SECURE=false or port 465 with SMTP_SECURE=true.");
+    }
+  }
   return Object.freeze({
     ttlSeconds: integer(source.PASSWORD_RESET_TTL_SECONDS, 1800, 300, 3600, "PASSWORD_RESET_TTL_SECONDS"),
     host, secure, user, password, from,
-    port: integer(source.SMTP_PORT, secure ? 465 : local && !production ? 1025 : 587, 1, 65535, "SMTP_PORT"),
+    port,
     // Plain SMTP is permitted only for a local development/test inbox.
     requireTLS: !secure && (production || !local),
   });

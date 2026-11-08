@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "mail:verify": "tsx src/cli/mail.ts verify",
+    "mail:test": "tsx src/cli/mail.ts test",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",

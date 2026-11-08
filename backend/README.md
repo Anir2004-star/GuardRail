@@ -926,6 +926,41 @@ secret removal, cookie isolation, expiry and uncertain outcomes.
 
 References: [OWASP email validation and verification](https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html).
 
+## Real email delivery diagnostics - step 16
+
+For the selected Gmail local-testing setup, follow
+[docs/gmail-smtp.md](docs/gmail-smtp.md). Keep credentials in the private `.env`.
+Use a Google App Password after enabling 2-Step Verification; the existing Google
+sign-in OAuth client secret is unrelated. No provider account is created or secret
+embedded by the implementation.
+
+`npm run mail:verify` checks the external SMTP connection, TLS and authentication
+without submitting a message. It refuses local Mailpit, incomplete credentials,
+placeholder senders and plaintext configuration as readiness for real delivery.
+`npm run mail:test -- --to <email>` sends one plain setup message only to the
+explicit valid recipient. It reports SMTP acceptance rather than claiming arrival.
+Neither command imports Express/Prisma or creates users, sessions or reset tokens.
+All diagnostic errors are static and omit raw provider responses/credentials.
+
+Both commands share the application sender and timeout/TLS settings. Connection,
+greeting and DNS timeouts are 10 seconds; idle socket timeout is 15 seconds. Each
+one-off transport is closed after completion/failure. The existing mail queues
+retain their bounded capacity and server shutdown deadline.
+
+For `smtp.gmail.com`, configuration validates an email username, a 16-character
+App Password after removing Google's display spaces, matching `MAIL_FROM`, and
+either port 587/STARTTLS (`SMTP_SECURE=false`) or port 465/implicit TLS
+(`SMTP_SECURE=true`). Other providers' password whitespace is left unchanged.
+TLS certificate validation is never disabled. This local-testing configuration
+uses the authenticated sending address, rather than Gmail sender aliases.
+
+`tests/mail-setup.test.mjs` checks configuration, explicit recipient parsing,
+sanitized diagnostics and the real shared SMTP transport against a loopback-only
+capture server. Verification produces no messages; an explicit fixture message
+stays in the capture inbox. No unit/integration test inherits a real SMTP provider
+for delivery. The connected database suite still covers verification/reset email
+content and the effects of using their links.
+
 ## Documentation links
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)

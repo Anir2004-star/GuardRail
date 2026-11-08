@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { ArrowRight, CircleCheck, MailCheck, ShieldCheck } from "lucide-react";
 import { resendVerificationEmail, VERIFICATION_REQUEST_MESSAGE, verifyEmailToken } from "@/lib/email-verification-api";
 
 export function ResendVerification({ email }: { email?: string }) {
@@ -49,15 +50,21 @@ export function EmailVerificationScreen() {
     if (result.ok) { setToken(null); setComplete(true); }
     else { setError(result.message); if (result.invalidToken) setToken(null); }
   }
-  return <main className="auth-page"><section className="auth-panel"><div className="auth-box">
+  return <main className="auth-page"><section className="auth-panel"><div className="auth-box verification-box">
     <Link className="brand" href="/">GUARDRAIL</Link>
-    <h1>Verify your email</h1>
-    {complete ? <p className="feedback" role="status">Email verified. Sign in with your password to continue.</p>
+    <div className={`verification-icon${complete ? " is-complete" : ""}`} aria-hidden="true">{complete ? <CircleCheck /> : <MailCheck />}</div>
+    <span className="eyebrow">{complete ? "VERIFICATION COMPLETE" : "EMAIL CONFIRMATION"}</span>
+    <h1>{complete ? "Email verified" : "Verify your email"}</h1>
+    {complete ? <>
+      <p className="verification-copy" role="status">Your email address is confirmed. You can now sign in to your workspace.</p>
+      <Link className="button auth-submit verification-continue" href="/login">Continue to sign in <ArrowRight aria-hidden="true" /></Link>
+      <p className="verification-note">Use the email and password you registered with.</p>
+    </>
       : token === undefined ? <p role="status">Checking your verification link...</p>
-        : token ? <><p>Confirm this email only if you created the Guardrail account. This does not sign you in.</p><button type="button" className="button auth-submit" disabled={pending} onClick={() => void confirm()}>{pending ? "Verifying..." : "Verify email"}</button></>
+        : token ? <><p className="verification-copy">Confirm this email only if you created the Guardrail account. Then sign in to continue.</p><button type="button" className="button auth-submit verification-continue" disabled={pending} onClick={() => void confirm()}>{pending ? "Verifying..." : "Verify email"}</button></>
           : <p className="field-error" role="alert">Verification link is invalid or expired. Request a new link.</p>}
     {error && token && <p className="field-error" role="alert">{error}</p>}
     {!complete && token !== undefined && <ResendVerification />}
-    <p><Link href="/login">Go to sign in</Link></p>
-  </div></section><aside className="auth-art"><div><h2>Confirm your inbox.<br />Keep your account yours.</h2><p>Your verification link expires and works once.</p></div></aside></main>;
+    {!complete && <p className="auth-foot"><Link href="/login">Back to sign in</Link></p>}
+  </div></section><aside className="auth-art"><div><ShieldCheck /><h2>{complete ? <>Your email, confirmed.<br />Your workspace is next.</> : <>Confirm your inbox.<br />Keep your account yours.</>}</h2><p>{complete ? "Sign in to start organizing with Guardrail." : "Your verification link expires and works once."}</p></div></aside></main>;
 }

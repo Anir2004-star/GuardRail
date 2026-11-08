@@ -817,6 +817,14 @@ input, select { accent-color: var(--plum); }
 .google-auth { display: grid; gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 .google-auth .text-button { justify-self: start; text-align: left; }
 .auth-foot { margin-top: 23px; color: var(--muted); font-size: 11px; text-align: center; }
+.verification-box .verification-icon { display: grid; place-items: center; width: 76px; height: 76px; margin: 44px 0 25px; border: 1px solid var(--border); border-radius: 22px; color: var(--plum); background: var(--plum-soft); }
+.verification-icon svg { width: 34px; height: 34px; stroke-width: 1.7; }
+.verification-box .verification-icon.is-complete { color: #218259; border-color: #cce8d8; background: #eff9f3; }
+.verification-box .eyebrow { font-size: 10px; letter-spacing: .13em; }
+.verification-box .verification-copy { margin: 14px 0 0; color: var(--muted); font-size: 15px; line-height: 1.75; }
+.verification-continue { margin-top: 28px; }
+.verification-continue svg { width: 18px; height: 18px; }
+.verification-note { margin: 16px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; }
 .auth-art { position: relative; overflow: hidden; display: grid; place-items: center; padding: 70px; color: white; background: var(--sidebar); }
 .auth-art::before, .auth-art::after { content: ""; position: absolute; border: 1px solid rgba(255,255,255,.08); border-radius: 50%; }
 .auth-art::before { width: 550px; height: 550px; }
