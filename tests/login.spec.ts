@@ -1,3 +1,4 @@
+import { mockEmptyDevices } from "./helpers/empty-devices";
 import { test, expect, type Page, type Route } from "@playwright/test";
 
 const apiPattern = "**/api/v1/auth/login";
@@ -134,3 +135,5 @@ test("login enforces input boundaries without reapplying signup composition rule
   await expect(page.locator("form").getByRole("alert")).toHaveText("Email or password is incorrect.");
   expect(requests).toBe(1);
 });
+
+test.beforeEach(async ({ context }) => { await mockEmptyDevices(context); });

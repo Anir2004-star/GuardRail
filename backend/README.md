@@ -961,6 +961,77 @@ stays in the capture inbox. No unit/integration test inherits a real SMTP provid
 for delivery. The connected database suite still covers verification/reset email
 content and the effects of using their links.
 
+## Account-owned devices - step 17
+
+The additive `20261109000100_add_owned_devices` migration creates `devices` and a
+three-value device type enum: Laptop, Smartphone, Tablet. User deletion cascades
+to that user's registrations. Existing users, authentication records and browser
+demo data are unchanged. Generate the Prisma client and apply migrations before
+running the connected UI.
+
+All `/api/v1/devices` routes use `requireAuth`, including verified/exempt account
+checks. Ownership comes only from `response.locals.authUser.id`; a body/query
+user ID is never an owner selector. Responses are no-store and use an explicit
+field allowlist excluding owner IDs and registration request IDs. No route sets
+or accepts cookies as authentication.
+
+- `POST /api/v1/devices`: strict JSON `{ requestId, name, type, brand?, model?, os? }`;
+  returns 201 `{ device }`. The client generates a UUID request ID per registration.
+  The server generates the device ID and assigns the authenticated owner.
+- `GET /api/v1/devices`: returns 200 `{ devices }`, ordered newest first, capped at
+  the account's maximum of 100 registrations.
+- `GET /api/v1/devices/:id`: returns 200 `{ device }` for an owned record.
+- `PATCH /api/v1/devices/:id`: accepts only `{ name }`, returns 200 `{ device }`.
+- `DELETE /api/v1/devices/:id`: removes only the owned registration and returns an
+  empty 204. A later request for a removed record returns 404.
+
+Unknown and another owner's UUIDs produce identical safe 404 responses. Invalid
+identifiers, query filters, control characters, unsupported fields/types and
+oversized metadata return sanitized 400 errors. Names are required and trimmed
+(maximum 60 characters); optional metadata is trimmed, limited to 80 and stored as
+null when empty. Names can repeat; they are not hardware identifiers.
+
+Mutations check the configured Origin before their independent limit/authentication
+pipeline. Read endpoints accept bearer clients without an Origin. CORS preflight
+permits the supported methods and Authorization header for the configured frontend.
+Limits are 300 reads and 60 mutations per IP per 15 minutes, in separate in-memory
+stores. Multiple deployed instances still need shared limiting/trusted-proxy setup.
+
+Registration locks the owner row, rechecks access and enforces the 100-device cap
+inside the same transaction. A unique `(user_id, request_id)` key makes concurrent
+same-input create retries return the same record rather than duplicates. Reusing
+the key with different current metadata returns 409. Request-ID replay protection
+lasts for the record's lifetime; after removal, API clients must use a fresh request
+ID for a new registration. The website generates one for each new dialog. Rename
+and removal include owner criteria in the database mutation itself.
+
+Public records contain metadata/timestamps plus `status: "registered"`,
+`paired: false` and `storage: null`. These describe registration only. No pairing
+code, companion credentials, measurements, permissions, scan or file mutations are
+implemented by this milestone.
+
+The signed-in frontend fetches records without browser persistence. List/detail
+loads hide prior-account data immediately and discard late responses after route,
+token or owner changes. Device reloads start fresh requests so an old in-flight
+snapshot cannot mask a just-completed mutation. Successful writes refresh visible
+records; an ambiguous network/server outcome is reported without automatic replay.
+Only a definite 401, produced before effects by authentication middleware, can
+renew and retry once. Both attempts preserve the create request ID. Unknown or
+malformed success responses are not treated as confirmed changes.
+
+The original demo components remain available only in explicit demo mode. They
+still use local samples for pairing, capacities, permissions and simulated cleanup.
+Real registration flows do not write private device names into demo activity or
+browser storage. Other cloud/cleanup content remains clearly marked sample data.
+
+Unit tests cover metadata/ownership-field validation. The isolated database suite
+tests CRUD, safe responses, cross-account 404s, persistence, concurrent request
+retries, capacity enforcement, cascade deletion, sanitized lock timeouts, origin,
+rate limits and health/readiness. Browser tests use controlled APIs for reload,
+rename/remove, account switching, expired access, uncertain writes, late reads,
+connections/settings and demo isolation. Authentication-only browser fixtures now
+explicitly mock an empty device list, without bypassing server authorization.
+
 ## Documentation links
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)

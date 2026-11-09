@@ -1,3 +1,4 @@
+import { mockEmptyDevices } from "./helpers/empty-devices";
 import { test, expect, type BrowserContext, type Route } from "@playwright/test";
 
 const user = {
@@ -159,3 +160,5 @@ test("leaving during an account check prevents a late response from displaying t
   } finally { release(); }
   await expect(page.locator(".app-sidebar")).toHaveCount(0);
 });
+
+test.beforeEach(async ({ context }) => { await mockEmptyDevices(context); });

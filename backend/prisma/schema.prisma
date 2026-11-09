@@ -27,6 +27,7 @@ model User {
   refreshSessions RefreshSession[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  devices         Device[]
 
   @@map("users")
 }
@@ -89,4 +90,28 @@ model EmailVerificationToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("email_verification_tokens")
+}
+
+enum DeviceType {
+  Laptop
+  Smartphone
+  Tablet
+}
+
+model Device {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  requestId   String     @map("request_id") @db.Uuid
+  name        String     @db.VarChar(60)
+  type        DeviceType
+  brand       String?    @db.VarChar(80)
+  model       String?    @db.VarChar(80)
+  os          String?    @db.VarChar(80)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt, id])
+  @@map("devices")
 }

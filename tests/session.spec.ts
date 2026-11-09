@@ -1,3 +1,4 @@
+import { mockEmptyDevices } from "./helpers/empty-devices";
 import { test, expect, type BrowserContext, type Route } from "@playwright/test";
 
 const key = "guardrail.auth.coordination.v1";
@@ -333,3 +334,5 @@ for (const failure of ["network", 403, 429, 500] as const) {
     await expect(page.getByText("PRIVATE_SERVER_DETAIL")).toHaveCount(0);
   });
 }
+
+test.beforeEach(async ({ context }) => { await mockEmptyDevices(context); });

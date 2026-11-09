@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, HardDrive, Laptop, LoaderCircle, RefreshCcw, Smartphone, Tablet, X } from "lucide-react";
 import { CleanupCandidate, Device, DeviceType, PairingSession, deviceService, formatDemoDateTime, formatSize, useDemo } from "./demo-store";
 import { useReviewDemo } from "./review-store";
+import { useAuthSession } from "./auth-store";
+import { RegisteredDeviceDetailsPage, RegisteredDevicesPage } from "./registered-devices";
 
 const deviceTypes: { type: DeviceType; icon: typeof Laptop; text: string }[] = [
   { type: "Laptop", icon: Laptop, text: "macOS, Windows, Linux, or ChromeOS" },
@@ -63,6 +65,11 @@ function DeviceCard({ device }: { device: Device }) {
 }
 
 export function DevicesPage({ embedded = false }: { embedded?: boolean }) {
+  const demo = useAuthSession((state) => state.status === "demo");
+  return demo ? <DemoDevicesPage embedded={embedded} /> : <RegisteredDevicesPage embedded={embedded} />;
+}
+
+function DemoDevicesPage({ embedded = false }: { embedded?: boolean }) {
   const state = useDemo(); const [adding, setAdding] = useState(false); const [resetOpen, setResetOpen] = useState(false);
   return <>{embedded ? <div className="embedded-device-actions"><button className="button small" onClick={() => setAdding(true)}>Add device</button></div> : <><div className="page-heading"><div><div className="heading-labels"><span className="eyebrow">MY DEVICES</span><span className="demo-chip">Demo mode</span></div><h1>My devices</h1><p>Connect your devices to view storage usage and review cleanup suggestions.</p></div><button className="button small" onClick={() => setAdding(true)}>Add device</button></div><div className="demo-notice page-demo-notice"><CircleAlert /><span><b>Sample device data.</b> Guardrail has not detected or scanned your real devices.</span></div></>}{state.devices.length ? <div className="device-grid">{state.devices.map((device) => <DeviceCard device={device} key={device.id} />)}</div> : <div className="empty-state"><HardDrive /><h3>No devices connected</h3><p>Add a demo device to try pairing, storage details, permissions, and cleanup review.</p><button className="button small" onClick={() => setAdding(true)}>Add your first device</button></div>}{!embedded && <section className="work-panel demo-controls"><div><span className="eyebrow">DEMO CONTROLS</span><h2>Reset demo data</h2><p>Restore the original sample devices, cloud items, preferences, and activity in this browser.</p></div><button className="secondary" onClick={() => setResetOpen(true)}>Reset demo data</button></section>}{adding && <AddDeviceDialog close={() => setAdding(false)} />}{resetOpen && <ResetDialog close={() => setResetOpen(false)} />}</>;
 }
@@ -79,6 +86,11 @@ function CleanupDialog({ device, selected, close, complete }: { device: Device; 
 }
 
 export function DeviceDetailsPage({ id }: { id: string }) {
+  const demo = useAuthSession((state) => state.status === "demo");
+  return demo ? <DemoDeviceDetailsPage id={id} /> : <RegisteredDeviceDetailsPage id={id} />;
+}
+
+function DemoDeviceDetailsPage({ id }: { id: string }) {
   const state = useDemo(); const device = state.devices.find((entry) => entry.id === id); const [selected, setSelected] = useState<string[]>([]); const [reviewing, setReviewing] = useState(false); const [complete, setComplete] = useState(false); const [renaming, setRenaming] = useState(false); const [disconnecting, setDisconnecting] = useState(false);
   if (!device) return <><Link className="breadcrumb" href="/app/devices">← My devices</Link><div className="empty-state"><HardDrive /><h3>Device not found</h3><p>This demo device may have been disconnected or the saved data may have been reset.</p><Link className="button small" href="/app/devices">Back to devices</Link></div></>;
   const Icon = iconFor(device.category); const suggested = device.cleanupCandidates.filter((candidate) => candidate.state === "suggested"); const selectedCandidates = suggested.filter((candidate) => selected.includes(candidate.id));

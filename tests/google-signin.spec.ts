@@ -1,3 +1,4 @@
+import { mockEmptyDevices } from "./helpers/empty-devices";
 import { test, expect, type BrowserContext } from "@playwright/test";
 
 const clientId = "123456-browser.apps.googleusercontent.com";
@@ -95,3 +96,5 @@ for (const status of [401, 409]) {
     await expect(page.getByRole("button", { name: "Continue with Google", exact: true })).toBeEnabled();
   });
 }
+
+test.beforeEach(async ({ context }) => { await mockEmptyDevices(context); });

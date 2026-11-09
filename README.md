@@ -4,7 +4,7 @@ Guardrail is an assistant for organizing Gmail and Google Drive content, reviewi
 
 ## Current milestone
 
-The repository contains a complete frontend demo:
+The repository contains a frontend workspace with working account and device APIs:
 
 - responsive public landing page;
 - signup connected to the Express API, with email verification and resend support;
@@ -13,14 +13,14 @@ The repository contains a complete frontend demo:
 - storage usage overview backed by Recharts;
 - search, sorting, filters, item previews, folder organization, and item protection;
 - Gmail and Drive connection previews and cancellable sample scans;
-- smartphone, tablet, and laptop registration, including Apple and other brands, with editable sample capacities and device dashboards;
+- account-owned smartphone, tablet, and laptop registration, with separate demo pairing and sample-capacity screens;
 - 70% / 90% device alert examples, protection rules, and warm-light / charcoal appearance preferences;
 - item-level recommendation review, explicit approval, separate execution, activity, and restore views;
 - notifications with read states, editable profile and preferences, help, and public information pages;
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-All provider content is sample data. Demo workspace changes persist in local browser storage. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Password signup requires email verification before separate sign-in. Google signup can sign in using verified Google identity. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
+Provider files and storage measurements remain sample data. Signed-in device registrations are saved to the owner account in PostgreSQL; demo devices and workspace changes remain local samples. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Password signup requires email verification before separate sign-in. Google signup can sign in using verified Google identity. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -343,6 +343,34 @@ The command reports SMTP acceptance, not guaranteed inbox delivery. Restart the
 backend after updating the environment, then test signup verification and password
 reset in the real inbox. Automated tests only use a loopback SMTP capture server.
 Mailpit remains the default until private Gmail SMTP credentials are configured.
+
+## Account-owned device registration (step 17)
+
+Signed-in users now register devices through the Express API and PostgreSQL.
+**My devices**, device details, **Connections & devices**, device settings and the
+dashboard device section use the account's saved records. Demo mode keeps its
+existing sample pairing/storage screens and sends no real device API requests.
+Browser demo records are not automatically imported into an account.
+
+To try it, sign in, open `/app/devices`, choose **Add device**, and enter a name and
+type. Brand, model and operating system are optional. Refresh/reload or sign out
+and back in: the saved device remains. You can rename it or remove its registration.
+Another account has a separate list and cannot open or change your device IDs.
+
+The migration has already been applied locally. Fresh checkouts should run
+`npm run db:generate` and `npm run db:deploy` from `backend`. Existing account,
+verification, Google identity and session records are preserved.
+
+Registration stores user-entered metadata. Cards show **Registered** and **Storage
+report pending**. Pairing, folder permissions and actual measurements need a future
+companion app; no storage capacity, file list, scan or connected status is invented.
+Removing a registration does not delete files from a device.
+
+Protected device reads use the existing in-memory access token. Mutations require
+that token and the configured frontend Origin, omit cookies, and never automatically
+retry an ambiguous network failure. Create retries reuse a per-dialog request ID
+to avoid duplicates while the record exists. Refresh your list after an uncertain
+outcome. Device metadata is not persisted in browser storage.
 
 ## Verification
 

@@ -816,6 +816,16 @@ input, select { accent-color: var(--plum); }
 .auth-submit { width: 100%; }
 .google-auth { display: grid; gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 .google-auth .text-button { justify-self: start; text-align: left; }
+.status-pill.registered { color: var(--plum); background: var(--plum-soft); }
+.status-pill.registered i { background: var(--plum); }
+.device-report-pending { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; color: var(--muted); }
+.device-report-pending > svg { flex: 0 0 22px; }
+.device-report-pending b { color: var(--ink); font-size: 14px; }
+.device-report-pending p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; }
+.account-devices-overview { margin: 24px 0; }
+.account-device-actions { margin: 0 0 16px; gap: 10px; flex-wrap: wrap; }
+.device-card h2, .device-card > p, .device-title h1 { overflow-wrap: anywhere; }
+.overview-grid.account-overview-grid { grid-template-columns: minmax(0, 1fr); }
 .auth-foot { margin-top: 23px; color: var(--muted); font-size: 11px; text-align: center; }
 .verification-box .verification-icon { display: grid; place-items: center; width: 76px; height: 76px; margin: 44px 0 25px; border: 1px solid var(--border); border-radius: 22px; color: var(--plum); background: var(--plum-soft); }
 .verification-icon svg { width: 34px; height: 34px; stroke-width: 1.7; }

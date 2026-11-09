@@ -1,0 +1,200 @@
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import type { RegisteredDevice } from "../lib/device-api";
+
+const cors = { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
+const profiles = {
+  A: { id: "71e23186-bc0e-4f4c-bdf5-ac0df68cf038", name: "Device Owner A", firstName: "Device", middleName: null, lastName: "Owner A", email: "a@example.org", createdAt: "2026-11-01T12:00:00.000Z" },
+  B: { id: "81e23186-bc0e-4f4c-bdf5-ac0df68cf038", name: "Device Owner B", firstName: "Device", middleName: null, lastName: "Owner B", email: "b@example.org", createdAt: "2026-11-01T12:00:00.000Z" },
+};
+type Owner = keyof typeof profiles;
+type Stored = { owner: Owner; device: RegisteredDevice; requestId: string };
+async function backend(context: BrowserContext) {
+  const state = { owner: "A" as Owner, refreshes: 0, posts: 0, writes: [] as { method: string; body: Record<string, unknown> | null; authorization: string }[], records: new Map<string, Stored>(), failNext: 0, loseNext: false, malformedNext: false, rejectNext: false, holdNextList: null as { entered: () => void; gate: Promise<void> } | null };
+  const session = () => ({ user: profiles[state.owner], accessToken: `device-access-${state.owner}-${++state.refreshes}`, tokenType: "Bearer", expiresIn: 900 });
+  await context.addCookies([{ name: "guardrail_refresh", value: "A".repeat(43), domain: "localhost", path: "/api/v1/auth", httpOnly: true }]);
+  await context.route("**/api/v1/auth/**", async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/me")) {
+      const owner = route.request().headers().authorization?.includes("-B-") ? "B" : "A";
+      await route.fulfill({ headers: cors, json: { user: profiles[owner] } });
+    } else if (path.endsWith("/logout")) {
+      await route.fulfill({ status: 204, headers: { ...cors, "Set-Cookie": "guardrail_refresh=; Path=/api/v1/auth; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT" } });
+    } else {
+      if (path.endsWith("/login")) state.owner = route.request().postDataJSON().email === profiles.B.email ? "B" : "A";
+      await route.fulfill({ headers: { ...cors, "Set-Cookie": "guardrail_refresh=" + "B".repeat(43) + "; Path=/api/v1/auth; HttpOnly; SameSite=Lax" }, json: session() });
+    }
+  });
+  await context.route("**/api/v1/devices**", async (route) => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    const headers = await request.allHeaders();
+    expect(headers.cookie).toBeUndefined();
+    expect(headers.authorization).toMatch(/^Bearer device-access-[AB]-\d+$/);
+    const owner: Owner = headers.authorization.includes("-B-") ? "B" : "A";
+    const id = new URL(request.url()).pathname.replace(/^\/api\/v1\/devices\/?/, "");
+    const method = request.method();
+    if (method === "GET") {
+      if (!id) {
+        const devices = [...state.records.values()].filter((entry) => entry.owner === owner).map((entry) => entry.device);
+        const held = state.holdNextList; state.holdNextList = null;
+        if (held) { held.entered(); await held.gate; }
+        await route.fulfill({ headers: cors, json: { devices } });
+      }
+      else {
+        const found = state.records.get(id);
+        await route.fulfill(found?.owner === owner ? { headers: cors, json: { device: found.device } } : { status: 404, headers: cors, json: { error: { code: "DEVICE_NOT_FOUND" } } });
+      }
+      return;
+    }
+    const body = method === "DELETE" ? null : request.postDataJSON() as Record<string, unknown>;
+    state.writes.push({ method, body, authorization: headers.authorization });
+    if (method === "POST") state.posts++;
+    if (state.rejectNext) { state.rejectNext = false; await route.fulfill({ status: 401, headers: cors }); return; }
+    if (state.failNext) { const status = state.failNext; state.failNext = 0; await route.fulfill({ status, headers: cors, json: { error: { code: status === 409 ? "DEVICE_LIMIT_REACHED" : "PRIVATE_BACKEND_DETAIL" } } }); return; }
+    if (method === "POST") {
+      let stored = [...state.records.values()].find((entry) => entry.owner === owner && entry.requestId === body!.requestId);
+      if (!stored) {
+        const device: RegisteredDevice = { id: randomUUID(), name: String(body!.name).trim(), type: body!.type as RegisteredDevice["type"], brand: String(body!.brand ?? "").trim() || null, model: String(body!.model ?? "").trim() || null, os: String(body!.os ?? "").trim() || null, createdAt: "2026-11-09T04:00:00.000Z", updatedAt: "2026-11-09T04:00:00.000Z", status: "registered", paired: false, storage: null };
+        stored = { owner, device, requestId: String(body!.requestId) }; state.records.set(device.id, stored);
+      }
+      if (state.loseNext) { state.loseNext = false; await route.abort("failed"); return; }
+      if (state.malformedNext) { state.malformedNext = false; await route.fulfill({ status: 201, headers: cors, json: { device: { ...stored.device, paired: true } } }); return; }
+      await route.fulfill({ status: 201, headers: cors, json: { device: stored.device } }); return;
+    }
+    const stored = state.records.get(id);
+    if (!stored || stored.owner !== owner) { await route.fulfill({ status: 404, headers: cors }); return; }
+    if (method === "DELETE") { state.records.delete(id); await route.fulfill({ status: 204, headers: cors }); }
+    else { stored.device = { ...stored.device, name: String(body!.name).trim(), updatedAt: "2026-11-09T05:00:00.000Z" }; await route.fulfill({ headers: cors, json: { device: stored.device } }); }
+  });
+  return state;
+}
+async function register(page: Page, name = "Private workstation") {
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Register a device", exact: true });
+  await dialog.getByLabel("Device name", { exact: true }).fill(name);
+  await dialog.getByLabel("Brand (optional)").fill("ACER");
+  await dialog.getByLabel("Operating system (optional)").fill("Windows");
+  await dialog.getByRole("button", { name: "Register device", exact: true }).click();
+}
+async function logout(page: Page) { await page.locator(".sidebar-profile").click(); await page.getByRole("button", { name: "Sign out", exact: true }).click(); await expect(page).toHaveURL(/\/login$/); }
+
+test("registered devices persist across reload, appear in connections/settings, rename and remove without sample storage", async ({ page, context }) => {
+  const state = await backend(context);
+  await page.goto("/app/devices");
+  await expect(page.getByRole("heading", { name: "No devices registered" })).toBeVisible();
+  await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  expect(state.posts).toBe(1);
+  expect(Object.keys(state.writes[0].body!).sort()).toEqual(["requestId", "name", "type", "brand", "model", "os"].sort());
+  expect(String(state.writes[0].body!.requestId)).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page.locator(".device-grid")).toContainText("Storage report pending");
+  await expect(page.locator(".device-grid")).not.toContainText("GB used");
+  const storage = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
+  expect(storage).not.toContain("Private workstation");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  await page.goto("/app/connections");
+  await expect(page.locator(".device-grid")).toContainText("Private workstation");
+  await page.goto("/app/settings/devices");
+  await expect(page.locator(".device-grid")).toContainText("Private workstation");
+  await page.getByRole("link", { name: "View details", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Ready for pairing later" })).toBeVisible();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  const rename = page.getByRole("dialog", { name: "Rename device", exact: true });
+  await rename.getByLabel("Device name", { exact: true }).fill("Travel laptop");
+  await rename.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Travel laptop", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove device", exact: true }).click();
+  const remove = page.getByRole("dialog", { name: "Remove device", exact: true });
+  await expect(remove).toContainText("does not delete files");
+  await remove.getByRole("button", { name: "Remove device", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/devices$/);
+  await expect(page.getByRole("heading", { name: "No devices registered" })).toBeVisible();
+  expect(state.records.size).toBe(0);
+});
+test("logout and another account's login never show the first owner's devices or enable foreign detail access", async ({ page, context }) => {
+  const state = await backend(context);
+  await page.goto("/app/devices"); await register(page, "Owner A private laptop");
+  await expect(page.getByRole("heading", { name: "Owner A private laptop" })).toBeVisible();
+  const id = [...state.records.keys()][0];
+  await logout(page);
+  await page.getByLabel("Email address").fill(profiles.B.email);
+  await page.getByLabel("Password", { exact: true }).fill("Owner B Password!42");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/dashboard$/);
+  await expect(page.locator("body")).not.toContainText("Owner A private laptop");
+  await page.goto("/app/devices");
+  await expect(page.getByRole("heading", { name: "No devices registered" })).toBeVisible();
+  await page.goto(`/app/devices/${id}`);
+  await expect(page.getByRole("heading", { name: "Device not found", exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Owner A private laptop");
+});
+test("a lost registration response is not retried automatically; an explicit retry reuses its request ID", async ({ page, context }) => {
+  const state = await backend(context); state.loseNext = true;
+  await page.goto("/app/devices"); await register(page, "Retry-safe laptop");
+  const dialog = page.getByRole("dialog", { name: "Register a device" });
+  await expect(dialog.getByRole("alert")).toContainText("Could not confirm the device change");
+  expect(state.posts).toBe(1); expect(state.records.size).toBe(1);
+  await dialog.getByRole("button", { name: "Register device", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Retry-safe laptop", exact: true })).toBeVisible();
+  expect(state.posts).toBe(2); expect(state.records.size).toBe(1);
+  expect(state.writes[0].body!.requestId).toBe(state.writes[1].body!.requestId);
+});
+test("a definite unauthorized write renews once and retries with the same registration request", async ({ page, context }) => {
+  const state = await backend(context); state.rejectNext = true;
+  await page.goto("/app/devices"); await register(page, "Renewed session laptop");
+  await expect(page.getByRole("heading", { name: "Renewed session laptop", exact: true })).toBeVisible();
+  expect(state.posts).toBe(2); expect(state.records.size).toBe(1);
+  expect(state.writes[0].authorization).not.toBe(state.writes[1].authorization);
+  expect(state.writes[0].body!.requestId).toBe(state.writes[1].body!.requestId);
+});
+test("a successful registration reloads fresh data even while an older list response is pending", async ({ page, context }) => {
+  const state = await backend(context);
+  await page.goto("/app/devices");
+  await expect(page.getByRole("heading", { name: "No devices registered" })).toBeVisible();
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Register a device" });
+  await dialog.getByLabel("Device name", { exact: true }).fill("Fresh device snapshot");
+  let release!: () => void; let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const arrived = new Promise<void>((resolve) => { entered = resolve; });
+  state.holdNextList = { entered, gate };
+  await page.evaluate(() => window.dispatchEvent(new Event("guardrail:devices-changed")));
+  await arrived;
+  try {
+    await dialog.getByRole("button", { name: "Register device", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Fresh device snapshot", exact: true })).toBeVisible();
+  } finally { release(); }
+  await expect(page.getByRole("heading", { name: "Fresh device snapshot", exact: true })).toBeVisible();
+  expect(state.posts).toBe(1);
+});
+for (const status of [403, 409, 429]) {
+  test(`device write ${status} keeps the form retryable and shows a local safe error`, async ({ page, context }) => {
+    const state = await backend(context); state.failNext = status;
+    await page.goto("/app/devices"); await register(page);
+    const dialog = page.getByRole("dialog", { name: "Register a device" });
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(dialog).not.toContainText("PRIVATE_BACKEND_DETAIL");
+    await expect(dialog.getByRole("button", { name: "Register device", exact: true })).toBeEnabled();
+    expect(state.records.size).toBe(0); expect(state.posts).toBe(1);
+  });
+}
+test("malformed registration success does not claim a device was paired or silently repeat the write", async ({ page, context }) => {
+  const state = await backend(context); state.malformedNext = true;
+  await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Could not confirm the device change");
+  expect(state.posts).toBe(1);
+});
+test("explicit demo mode keeps sample pairing isolated from all real device APIs", async ({ page, context }) => {
+  let calls = 0;
+  await context.route("**/api/v1/devices**", async (route) => { calls++; await route.fulfill({ status: 500 }); });
+  await page.goto("/login");
+  await page.getByRole("link", { name: /Explore without signing in/ }).click();
+  await page.goto("/app/devices");
+  await expect(page.getByText("Sample device data.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Add a demo device" })).toBeVisible();
+  expect(calls).toBe(0);
+});
