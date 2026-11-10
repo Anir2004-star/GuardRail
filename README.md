@@ -13,14 +13,14 @@ The repository contains a frontend workspace with working account and device API
 - storage usage overview backed by Recharts;
 - search, sorting, filters, item previews, folder organization, and item protection;
 - Gmail and Drive connection previews and cancellable sample scans;
-- account-owned smartphone, tablet, and laptop registration, with separate demo pairing and sample-capacity screens;
+- account-owned smartphone, tablet, and laptop registration, secure pairing, and a Windows companion for real fixed-volume capacity reports;
 - 70% / 90% device alert examples, protection rules, and warm-light / charcoal appearance preferences;
 - item-level recommendation review, explicit approval, separate execution, activity, and restore views;
 - notifications with read states, editable profile and preferences, help, and public information pages;
 - visible approval and revalidation language throughout the cleanup workflow;
 - sync-status popover and responsive dashboard states.
 
-Provider files and storage measurements remain sample data. Signed-in device registrations are saved to the owner account in PostgreSQL; demo devices and workspace changes remain local samples. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Password signup requires email verification before separate sign-in. Google signup can sign in using verified Google identity. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real measurements require a companion app later. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
+Provider files and cloud storage totals remain sample data. Paired Windows devices can now send real fixed-volume capacity reports. Signed-in device registrations are saved to the owner account in PostgreSQL; demo devices and workspace changes remain local samples. Signup creates a real PostgreSQL user through the Express API; signup data and passwords are not saved in browser storage. Passwords are sent to the backend and stored only as bcrypt hashes. Password signup requires email verification before separate sign-in. Google signup can sign in using verified Google identity. Sign-in authenticates a registered account; the access token and safe profile stay in memory, while the backend sets an HttpOnly refresh cookie. Password recovery sends one-use reset links through SMTP; local Mailpit captures development email. The assistant is a scripted guide. Demo approval and execution operate only on sample items; provider APIs are not connected. Cloud totals are derived from the sample index, including mock Trash. Account-wide allowance is unavailable because managed Gmail and Drive content is not necessarily the whole shared account usage. Device capacities are independent; the sample laptop has 512 GB. Device registration grants no file access. Real Windows measurements come from the opt-in companion app; folder scanning is not enabled. The versioned mock service is in `lib/demo-service.ts`; this revised scope resets older demo snapshots when they are first opened.
 
 ## Run locally
 
@@ -361,10 +361,11 @@ The migration has already been applied locally. Fresh checkouts should run
 `npm run db:generate` and `npm run db:deploy` from `backend`. Existing account,
 verification, Google identity and session records are preserved.
 
-Registration stores user-entered metadata. Cards show **Registered** and **Storage
-report pending**. Pairing, folder permissions and actual measurements need a future
-companion app; no storage capacity, file list, scan or connected status is invented.
-Removing a registration does not delete files from a device.
+Registration stores user-entered metadata. Cards initially show **Registered** and
+**Storage report pending**. The Windows companion can pair through explicit owner
+approval and report actual fixed-volume capacity. Folder scanning and cleanup
+remain separate work. Removing a registration revokes app access and does not
+delete files from a device.
 
 Protected device reads use the existing in-memory access token. Mutations require
 that token and the configured frontend Origin, omit cookies, and never automatically
@@ -417,5 +418,16 @@ The backend implementation must preserve this state transition:
 An execution request must reference a valid, unexpired approval created for the exact item set and exact proposed operations. Any change to the items, operation, provider state, or relevant policy invalidates the approval. AI output may create proposals; it must never create approvals or call provider mutation APIs directly.
 
 ## Recommended next slice
+
+The first Windows companion now runs from
+[`companion/windows/Start-Guardrail.cmd`](companion/windows/Start-Guardrail.cmd).
+It pairs through owner approval, saves a Windows-encrypted device credential, and
+can report fixed-volume capacity while open. Signed-in device cards/details show
+the reports and their age. Follow [the step-by-step companion guide](companion/windows/README.md).
+
+Device registration now has secure pairing codes, explicit owner approval,
+separate companion credentials and disconnect controls on signed-in device
+details. The Windows companion adds capacity reporting; folder scanning and cleanup remain separate work.
+See [device pairing](backend/DEVICE_PAIRING.md) for the protocol and local checks.
 
 Build the Express control plane around a mock provider first: proposal records, item-level approvals, single-use approval tokens, immutable audit events, and a worker that refuses unapproved or stale actions. This lets the safety model be tested before connecting Gmail or Google Drive credentials.

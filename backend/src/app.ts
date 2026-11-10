@@ -9,6 +9,7 @@ import { healthRouter } from "./routes/health.routes.js";
 import { readyRouter } from "./routes/ready.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { deviceRouter } from "./routes/device.routes.js";
+import { companionRouter, pairingRouter } from "./routes/pairing.routes.js";
 
 export const app = express();
 
@@ -31,6 +32,8 @@ app.use("/health", healthRouter);
 app.use("/ready", readyRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/devices", deviceRouter);
+app.use("/api/v1/pairing", pairingRouter);
+app.use("/api/v1/companion", companionRouter);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -3,14 +3,30 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { assertEmailAccess } from "../auth/email-verification.js";
 import { InvalidAccessTokenError } from "../errors/auth.errors.js";
 import { parseDeviceId, parseDeviceRegistration, parseDeviceRename } from "../validation/device.validation.js";
+import { storageVolumesSchema } from "../validation/storage-report.validation.js";
 
 export class DeviceError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
 }
 const missing = () => new DeviceError(404, "DEVICE_NOT_FOUND", "Device not found.");
-const fields = { id: true, name: true, type: true, brand: true, model: true, os: true, createdAt: true, updatedAt: true } satisfies Prisma.DeviceSelect;
+const fields = { id: true, name: true, type: true, brand: true, model: true, os: true, createdAt: true, updatedAt: true,
+  credentials: { where: { revokedAt: null }, select: { id: true, createdAt: true, expiresAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+  storageReport: { select: { credentialId: true, collectedAt: true, receivedAt: true, volumes: true } },
+} satisfies Prisma.DeviceSelect;
 type DeviceRecord = Prisma.DeviceGetPayload<{ select: typeof fields }>;
-const publicDevice = (device: DeviceRecord) => ({ ...device, status: "registered" as const, paired: false as const, storage: null });
+const publicDevice = ({ credentials, storageReport, ...device }: DeviceRecord) => {
+  const credential = credentials.find((value) => value.expiresAt > new Date());
+  const parsed = storageVolumesSchema.safeParse(storageReport?.volumes);
+  const volumes = parsed.success ? parsed.data.map((volume) => ({ ...volume, usedBytes: volume.totalBytes - volume.freeBytes })) : [];
+  const storage = credential && storageReport?.credentialId === credential.id && volumes.length ? {
+    collectedAt: storageReport.collectedAt, receivedAt: storageReport.receivedAt, volumes,
+    totalBytes: volumes.reduce((sum, volume) => sum + volume.totalBytes, 0),
+    freeBytes: volumes.reduce((sum, volume) => sum + volume.freeBytes, 0),
+    usedBytes: volumes.reduce((sum, volume) => sum + volume.usedBytes, 0),
+  } : null;
+  return { ...device, status: credential ? "paired" as const : "registered" as const, paired: !!credential,
+    pairedAt: credential?.createdAt ?? null, credentialExpiresAt: credential?.expiresAt ?? null, storage };
+};
 
 export async function registerDevice(userId: string, input: unknown) {
   const data = parseDeviceRegistration(input);

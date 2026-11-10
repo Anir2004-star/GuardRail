@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import type { RegisteredDevice } from "../lib/device-api";
+import type { DevicePairing } from "../lib/device-api";
 
 const cors = { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
 const profiles = {
@@ -35,6 +36,7 @@ async function backend(context: BrowserContext) {
     const owner: Owner = headers.authorization.includes("-B-") ? "B" : "A";
     const id = new URL(request.url()).pathname.replace(/^\/api\/v1\/devices\/?/, "");
     const method = request.method();
+    if (method === "GET" && id.endsWith("/pairing")) { await route.fulfill({ headers: cors, json: { pairing: null } }); return; }
     if (method === "GET") {
       if (!id) {
         const devices = [...state.records.values()].filter((entry) => entry.owner === owner).map((entry) => entry.device);
@@ -100,7 +102,7 @@ test("registered devices persist across reload, appear in connections/settings, 
   await page.goto("/app/settings/devices");
   await expect(page.locator(".device-grid")).toContainText("Private workstation");
   await page.getByRole("link", { name: "View details", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Ready for pairing later" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pair your companion app" })).toBeVisible();
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   const rename = page.getByRole("dialog", { name: "Rename device", exact: true });
   await rename.getByLabel("Device name", { exact: true }).fill("Travel laptop");
@@ -108,7 +110,7 @@ test("registered devices persist across reload, appear in connections/settings, 
   await expect(page.getByRole("heading", { name: "Travel laptop", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove device", exact: true }).click();
   const remove = page.getByRole("dialog", { name: "Remove device", exact: true });
-  await expect(remove).toContainText("does not delete files");
+  await expect(remove).toContainText("Files on the device are not deleted");
   await remove.getByRole("button", { name: "Remove device", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/devices$/);
   await expect(page.getByRole("heading", { name: "No devices registered" })).toBeVisible();
@@ -197,4 +199,139 @@ test("explicit demo mode keeps sample pairing isolated from all real device APIs
   await page.getByRole("button", { name: "Add device", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add a demo device" })).toBeVisible();
   expect(calls).toBe(0);
+});
+
+async function pairingBackend(context: BrowserContext, state: Awaited<ReturnType<typeof backend>>, id: string) {
+  const fixture = { pairing: null as DevicePairing | null, starts: 0, approvals: 0, fail: 0, lose: false };
+  await context.route(`**/api/v1/devices/${id}/pairing**`, async (route) => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    expect(request.headers().authorization).toMatch(/^Bearer device-access-A-/);
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "GET") { await route.fulfill({ headers: cors, json: { pairing: fixture.pairing } }); return; }
+    if (fixture.fail) { const status = fixture.fail; fixture.fail = 0; await route.fulfill({ status, headers: cors, json: { error: { message: "PRIVATE_TOKEN" } } }); return; }
+    if (path.endsWith("/pairing")) {
+      fixture.starts++;
+      fixture.pairing = { id: randomUUID(), state: "Waiting", expiresAt: new Date(Date.now() + 300000).toISOString(), claimId: null, comparisonCode: null, candidate: null };
+      if (fixture.lose) { fixture.lose = false; await route.abort("failed"); return; }
+      await route.fulfill({ status: 201, headers: cors, json: { pairing: fixture.pairing, code: "ABCD-EFGH-JKLM" } }); return;
+    }
+    if (path.endsWith("/approve")) {
+      fixture.approvals++; expect(request.postDataJSON()).toEqual({ claimId: fixture.pairing!.claimId }); fixture.pairing!.state = "Approved";
+    } else fixture.pairing!.state = path.endsWith("/reject") ? "Rejected" : "Cancelled";
+    await route.fulfill({ headers: cors, json: { pairing: fixture.pairing } });
+  });
+  await context.route(`**/api/v1/devices/${id}/disconnect`, async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    const stored = state.records.get(id)!; stored.device = { ...stored.device, status: "registered", paired: false, pairedAt: null, credentialExpiresAt: null, storage: null };
+    if (fixture.pairing && fixture.pairing.state !== "Completed") fixture.pairing.state = "Cancelled";
+    await route.fulfill({ status: 204, headers: cors });
+  });
+  return fixture;
+}
+test("pairing requires comparison approval, stays pending until exchange and can be disconnected", async ({ page, context }) => {
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; const fixture = await pairingBackend(context, state, id);
+  await page.goto(`/app/devices/${id}`);
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("ABCD-EFGH-JKLM");
+  await page.reload(); await expect(page.getByText("The code is shown once.", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Generate a new code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toBeVisible();
+  fixture.pairing = { ...fixture.pairing!, state: "Claimed", claimId: randomUUID(), comparisonCode: "123456", candidate: { appName: "Guardrail companion", platform: "Windows", appVersion: "0.1" } };
+  await page.getByRole("button", { name: "Refresh pairing", exact: true }).click();
+  await expect(page.getByLabel("Comparison number", { exact: true })).toHaveText("123456");
+  await expect(page.getByRole("button", { name: "Approve pairing", exact: true })).toBeDisabled();
+  await page.getByLabel("The numbers match on my device.").check();
+  await page.getByRole("button", { name: "Approve pairing", exact: true }).click();
+  await expect(page.getByText("Approved. Waiting for the companion app to collect its credential.", { exact: true })).toBeVisible();
+  expect(state.records.get(id)!.device.paired).toBe(false); expect(fixture.approvals).toBe(1);
+  fixture.pairing!.state = "Completed";
+  state.records.get(id)!.device = { ...state.records.get(id)!.device, paired: true, status: "paired", pairedAt: new Date().toISOString(), credentialExpiresAt: new Date(Date.now() + 2592000000).toISOString() };
+  await page.getByRole("button", { name: "Refresh pairing", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Companion app paired" })).toBeVisible();
+  await expect(page.locator(".pairing-panel")).toContainText("does not indicate whether the device is online");
+  await page.getByRole("button", { name: "Disconnect companion app", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Pair your companion app" })).toBeVisible();
+  expect(state.records.get(id)!.device.paired).toBe(false);
+});
+test("pairing cancellation, rejection, expiry and lost responses remain recoverable without automatic writes", async ({ page, context }) => {
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; const fixture = await pairingBackend(context, state, id);
+  await page.goto(`/app/devices/${id}`); fixture.lose = true;
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.locator(".pairing-panel").getByRole("alert")).toContainText("Could not confirm the device change"); expect(fixture.starts).toBe(1);
+  await page.getByRole("button", { name: "Refresh pairing", exact: true }).click();
+  await expect(page.getByText("The code is shown once.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel pairing", exact: true }).click();
+  await expect(page.getByText("Pairing cancelled.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toBeVisible();
+  fixture.pairing = { ...fixture.pairing!, state: "Claimed", claimId: randomUUID(), comparisonCode: "654321", candidate: { appName: "Unknown app", platform: "Windows", appVersion: null } };
+  await page.getByRole("button", { name: "Refresh pairing", exact: true }).click();
+  await page.getByRole("button", { name: "Reject app", exact: true }).click();
+  await expect(page.getByText("Pairing rejected.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toBeVisible();
+  fixture.pairing!.expiresAt = new Date(0).toISOString();
+  await page.getByRole("button", { name: "Refresh pairing", exact: true }).click();
+  await expect(page.getByText("Pairing expired.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve pairing", exact: true })).toHaveCount(0);
+  fixture.fail = 429; await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.locator(".pairing-panel").getByRole("alert")).toContainText("Too many device changes");
+  await expect(page.locator("body")).not.toContainText("PRIVATE_TOKEN");
+});
+
+function withCapacity(device: RegisteredDevice): RegisteredDevice {
+  return { ...device, paired: true, status: "paired", pairedAt: new Date().toISOString(), credentialExpiresAt: new Date(Date.now() + 2592000000).toISOString(), storage: {
+    collectedAt: new Date().toISOString(), receivedAt: new Date().toISOString(),
+    totalBytes: 768 * 1024 ** 3, freeBytes: 228 * 1024 ** 3, usedBytes: 540 * 1024 ** 3,
+    volumes: [{ id: "C:\\", totalBytes: 512 * 1024 ** 3, freeBytes: 128 * 1024 ** 3, usedBytes: 384 * 1024 ** 3 }, { id: "D:\\", totalBytes: 256 * 1024 ** 3, freeBytes: 100 * 1024 ** 3, usedBytes: 156 * 1024 ** 3 }],
+  } };
+}
+test("real capacity displays in cards and details, becomes stale, and clears after disconnect", async ({ page, context }) => {
+  await page.clock.install();
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; const stored = state.records.get(id)!; stored.device = withCapacity(stored.device);
+  await pairingBackend(context, state, id);
+  await page.getByRole("button", { name: "Refresh devices", exact: true }).click();
+  await expect(page.locator(".device-grid")).toContainText("540.0 GiB");
+  await expect(page.locator(".device-grid")).toContainText("228.0 GiB free");
+  await expect(page.locator(".device-grid")).toContainText("Recent capacity report");
+  await page.getByRole("link", { name: "View details", exact: true }).click();
+  await expect(page.locator(".reported-volumes")).toContainText("C:\\"); await expect(page.locator(".reported-volumes")).toContainText("D:\\");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("max", String(768 * 1024 ** 3));
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("totalBytes");
+  await page.clock.fastForward(181000);
+  await expect(page.locator(".device-storage-report")).toContainText("Report is stale");
+  await page.getByRole("button", { name: "Disconnect companion app", exact: true }).click();
+  await expect(page.locator(".device-report-pending")).toContainText("Storage report pending");
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+});
+test("background capacity refresh preserves an active pairing code and shows newer reported values", async ({ page, context }) => {
+  await page.clock.install();
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; const stored = state.records.get(id)!; stored.device = withCapacity(stored.device);
+  await pairingBackend(context, state, id); await page.goto(`/app/devices/${id}`);
+  await page.getByRole("button", { name: "Pair a replacement app", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
+  stored.device.storage = { ...stored.device.storage!, totalBytes: 512 * 1024 ** 3, freeBytes: 100 * 1024 ** 3, usedBytes: 412 * 1024 ** 3,
+    volumes: [{ id: "C:\\", totalBytes: 512 * 1024 ** 3, freeBytes: 100 * 1024 ** 3, usedBytes: 412 * 1024 ** 3 }] };
+  await page.clock.fastForward(31000);
+  await expect(page.locator(".device-storage-report")).toContainText("412.0 GiB");
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
+});
+test("impossible capacity responses are rejected without displaying invented measurements", async ({ page, context }) => {
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const stored = [...state.records.values()][0]; stored.device = withCapacity(stored.device); stored.device.storage!.freeBytes = stored.device.storage!.totalBytes + 1;
+  await page.getByRole("button", { name: "Refresh devices", exact: true }).click();
+  await expect(page.locator("main").getByRole("alert")).toContainText("unexpected response");
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
 });

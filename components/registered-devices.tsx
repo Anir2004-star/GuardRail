@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { DevicePairingPanel } from "./device-pairing-panel";
+import { DeviceStorageReport } from "./device-storage-report";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, HardDrive, Laptop, LoaderCircle, RefreshCcw, Smartphone, Tablet, X } from "lucide-react";
@@ -14,9 +16,9 @@ function useDeviceRecords(id?: string) {
   const scope = session ? `${session.user.id}:${session.accessToken}:${id ?? "list"}` : "anonymous";
   const epoch = useRef(0);
   const [state, setState] = useState<{ scope: string; devices: RegisteredDevice[]; loading: boolean; error: string; missing: boolean }>({ scope: "", devices: [], loading: true, error: "", missing: false });
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
     const request = ++epoch.current;
-    setState({ scope, devices: [], loading: true, error: "", missing: false });
+    if (!background) setState({ scope, devices: [], loading: true, error: "", missing: false });
     if (!session) { setState({ scope, devices: [], loading: false, error: "Sign in to access your devices.", missing: false }); return; }
     const result = id ? await getRegisteredDevice(id) : await getRegisteredDevices();
     const current = useAuthSession.getState().session;
@@ -24,12 +26,13 @@ function useDeviceRecords(id?: string) {
     if (result.ok) {
       const devices = "devices" in result.data ? result.data.devices : [result.data.device];
       setState({ scope, devices, loading: false, error: "", missing: false });
-    } else setState({ scope, devices: [], loading: false, error: result.kind === "not-found" ? "Device not found." : result.message, missing: result.kind === "not-found" });
+    } else if (!background || result.kind === "not-found") setState({ scope, devices: [], loading: false, error: result.kind === "not-found" ? "Device not found." : result.message, missing: result.kind === "not-found" });
   }, [scope, session, id]);
   useEffect(() => {
     const refresh = () => { void load(); };
     refresh(); window.addEventListener(DEVICES_CHANGED, refresh);
-    return () => { ++epoch.current; window.removeEventListener(DEVICES_CHANGED, refresh); };
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(true); }, 30000);
+    return () => { ++epoch.current; window.removeEventListener(DEVICES_CHANGED, refresh); window.clearInterval(timer); };
   }, [load]);
   return { ...(state.scope === scope ? state : { devices: [], loading: true, error: "", missing: false }), reload: load };
 }
@@ -57,8 +60,8 @@ function RecordDialog({ device, mode, close, removed }: { device?: RegisteredDev
   }
   return <dialog className="item-dialog" aria-label={title} ref={dialog} onCancel={(event) => { if (busy) event.preventDefault(); else close(); }}>
     <div className="panel-header"><h2>{title}</h2><button type="button" className="icon-button" aria-label="Close device dialog" disabled={busy} onClick={close}><X /></button></div>
-    {mode === "register" && <p>Save this device to your account. Companion app pairing and storage reporting are coming later.</p>}
-    {mode === "remove" && <p>Remove <b>{device?.name}</b> from your account? This removes the registration record and does not delete files from the device.</p>}
+    {mode === "register" && <p>Save this device to your account. Generate a pairing code from the saved device details when your companion app is ready.</p>}
+    {mode === "remove" && <p>Remove <b>{device?.name}</b> from your account? This revokes companion app access and removes the registration record. Files on the device are not deleted.</p>}
     <form className="settings-form" onSubmit={(event) => void submit(event)}>
       {mode !== "remove" && <label>Device name<input autoFocus required maxLength={60} value={fields.name} disabled={busy} onChange={(event) => setFields({ ...fields, name: event.target.value })} placeholder="My laptop" /></label>}
       {mode === "register" && <>
@@ -74,9 +77,9 @@ function RecordCard({ device, overview = false }: { device: RegisteredDevice; ov
   const [action, setAction] = useState<"rename" | "remove" | null>(null);
   const Icon = deviceIcon(device.type);
   return <article className={`work-panel device-card${overview ? " overview-source" : ""}`}>
-    <div className="device-card-head"><span className="device-icon"><Icon /></span><span className="status-pill registered"><i />Registered</span></div>
+    <div className="device-card-head"><span className="device-icon"><Icon /></span><span className="status-pill registered"><i />{device.paired ? "Paired" : "Registered"}</span></div>
     <h2>{device.name}</h2><p>{[device.type, device.brand, device.model, device.os].filter(Boolean).join(" · ")}</p>
-    <div className="device-report-pending"><HardDrive /><div><b>Storage report pending</b><p>Pairing and storage reporting will be available with the companion app.</p></div></div>
+    <DeviceStorageReport device={device} />
     <p className="source-note">Registered {dateLabel(device.createdAt)}</p>
     <div className="card-actions"><Link className="button small" href={`/app/devices/${device.id}`}>View details</Link>{!overview && <><button type="button" className="secondary" onClick={() => setAction("rename")}>Rename device</button><button type="button" className="text-button danger-text" onClick={() => setAction("remove")}>Remove</button></>}</div>
     {action && <RecordDialog mode={action} device={device} close={() => setAction(null)} />}
@@ -88,7 +91,7 @@ export function RegisteredDevicesPage({ embedded = false, overview = false }: { 
   return <>
     {overview ? <div className="section-bar"><div><span className="eyebrow">YOUR ACCOUNT</span><h2>Registered devices</h2></div><Link className="secondary" href="/app/devices">Manage devices</Link></div>
       : embedded ? <div className="embedded-device-actions account-device-actions">{controls}</div> : <div className="page-heading"><div><span className="eyebrow">MY DEVICES</span><h1>My devices</h1><p>Register and manage the devices saved to your account.</p></div><div className="heading-actions">{controls}</div></div>}
-    {!overview && <div className="demo-notice page-demo-notice"><CircleAlert /><span>Pairing, permissions and storage measurements will be available with the companion app.</span></div>}
+    {!overview && <div className="demo-notice page-demo-notice"><CircleAlert /><span>Pair Guardrail Companion on Windows to share drive capacity. Folder scanning and cleanup are coming later.</span></div>}
     {records.loading ? <p role="status"><LoaderCircle className="spin" size={18} /> Loading your devices...</p>
       : records.error ? <div className="work-panel"><p className="field-error" role="alert">{records.error}</p><button type="button" className="secondary" onClick={() => void records.reload()}>Retry devices</button></div>
         : records.devices.length ? <div className="device-grid">{(overview ? records.devices.slice(0, 2) : records.devices).map((device) => <RecordCard device={device} key={device.id} overview={overview} />)}</div>
@@ -108,8 +111,8 @@ function DeviceDetails({ id }: { id: string }) {
   if (records.missing) return <MissingDevice />;
   if (records.error || !device) return <div className="work-panel"><p className="field-error" role="alert">{records.error || "Could not load your device."}</p><button type="button" className="secondary" onClick={() => void records.reload()}>Retry device</button><Link href="/app/devices">Back to devices</Link></div>;
   const Icon = deviceIcon(device.type);
-  return <><Link className="breadcrumb" href="/app/devices">← My devices</Link><div className="page-heading"><div className="device-title"><span className="device-icon large"><Icon /></span><div><span className="status-pill registered"><i />Registered</span><h1>{device.name}</h1><p>{device.type}</p></div></div><div className="heading-actions"><button type="button" className="secondary" onClick={() => setAction("rename")}>Rename</button><button type="button" className="text-button danger-text" onClick={() => setAction("remove")}>Remove device</button></div></div>
-    <section className="detail-grid"><article className="work-panel"><span className="eyebrow">DEVICE DETAILS</span><dl className="detail-list"><dt>Type</dt><dd>{device.type}</dd><dt>Brand</dt><dd>{device.brand || "Not provided"}</dd><dt>Model</dt><dd>{device.model || "Not provided"}</dd><dt>Operating system</dt><dd>{device.os || "Not provided"}</dd><dt>Registered</dt><dd>{dateLabel(device.createdAt)}</dd><dt>Updated</dt><dd>{dateLabel(device.updatedAt)}</dd></dl></article><article className="work-panel"><span className="eyebrow">STORAGE & PAIRING</span><h2>Ready for pairing later</h2><p>The companion app will provide pairing, folder permissions and storage reports when available.</p><p className="source-note">Registration saves your device details to your account.</p></article></section>
+  return <><Link className="breadcrumb" href="/app/devices">← My devices</Link><div className="page-heading"><div className="device-title"><span className="device-icon large"><Icon /></span><div><span className="status-pill registered"><i />{device.paired ? "Paired" : "Registered"}</span><h1>{device.name}</h1><p>{device.type}</p></div></div><div className="heading-actions"><button type="button" className="secondary" onClick={() => setAction("rename")}>Rename</button><button type="button" className="text-button danger-text" onClick={() => setAction("remove")}>Remove device</button></div></div>
+    <section className="detail-grid"><article className="work-panel"><span className="eyebrow">DEVICE DETAILS</span><dl className="detail-list"><dt>Type</dt><dd>{device.type}</dd><dt>Brand</dt><dd>{device.brand || "Not provided"}</dd><dt>Model</dt><dd>{device.model || "Not provided"}</dd><dt>Operating system</dt><dd>{device.os || "Not provided"}</dd><dt>Registered</dt><dd>{dateLabel(device.createdAt)}</dd><dt>Updated</dt><dd>{dateLabel(device.updatedAt)}</dd></dl></article><DevicePairingPanel key={device.id} device={device} /><article className="work-panel"><span className="eyebrow">DRIVE CAPACITY</span><h2>Storage report</h2><DeviceStorageReport device={device} detailed /></article></section>
     {action && <RecordDialog mode={action} device={device} close={() => setAction(null)} removed={() => router.replace("/app/devices")} />}
   </>;
 }

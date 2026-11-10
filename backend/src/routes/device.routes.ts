@@ -4,6 +4,7 @@ import { requireAuth, type AuthenticatedHandler } from "../middleware/require-au
 import { requireAuthOrigin } from "../middleware/require-auth-origin.js";
 import { getDevice, listDevices, registerDevice, removeDevice, renameDevice } from "../services/device.service.js";
 import { requireEmptyDeviceQuery } from "../validation/device.validation.js";
+import { decideDevicePairing, disconnectDevice, getDevicePairing, startDevicePairing } from "../services/device-pairing.service.js";
 
 export const deviceRouter = Router();
 deviceRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -37,3 +38,22 @@ deviceRouter.get("/:id", requireAuth, readLimit, get);
 deviceRouter.post("/", requireAuthOrigin, writeLimit, requireAuth, create);
 deviceRouter.patch("/:id", requireAuthOrigin, writeLimit, requireAuth, rename);
 deviceRouter.delete("/:id", requireAuthOrigin, writeLimit, requireAuth, remove);
+deviceRouter.get("/:id/pairing", requireAuth, readLimit, async (request, response) => {
+  requireEmptyDeviceQuery(request.query);
+  response.json(await getDevicePairing(response.locals.authUser.id, request.params.id));
+});
+deviceRouter.post("/:id/pairing", requireAuthOrigin, writeLimit, requireAuth, async (request, response) => {
+  requireEmptyDeviceQuery(request.query);
+  response.status(201).json(await startDevicePairing(response.locals.authUser.id, request.params.id, request.body));
+});
+for (const decision of ["approve", "reject", "cancel"] as const) {
+  deviceRouter.post(`/:id/pairing/:pairingId/${decision}`, requireAuthOrigin, writeLimit, requireAuth, async (request, response) => {
+    requireEmptyDeviceQuery(request.query);
+    response.json(await decideDevicePairing(response.locals.authUser.id, request.params.id, request.params.pairingId, decision, request.body));
+  });
+}
+deviceRouter.post("/:id/disconnect", requireAuthOrigin, writeLimit, requireAuth, async (request, response) => {
+  requireEmptyDeviceQuery(request.query);
+  await disconnectDevice(response.locals.authUser.id, request.params.id, request.body);
+  response.status(204).end();
+});

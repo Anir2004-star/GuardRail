@@ -1032,7 +1032,20 @@ rename/remove, account switching, expired access, uncertain writes, late reads,
 connections/settings and demo isolation. Authentication-only browser fixtures now
 explicitly mock an empty device list, without bypassing server authorization.
 
+## Device pairing — step 18
+
+Secure pairing sessions, owner comparison/approval, one-time companion credential
+exchange and revocation extend the registration milestone above. Public device
+records now include `pairedAt` and `credentialExpiresAt` (nullable), and report
+`status: "paired"`/`paired: true` only for a current unrevoked device credential.
+Storage remains `null`. See [DEVICE_PAIRING.md](DEVICE_PAIRING.md) for setup, exact
+API contracts, security properties, expiry and remaining companion app work.
+
 ## Documentation links
+
+The Windows companion and bounded drive-capacity reporting are implemented in
+step 19. See [STORAGE_REPORTS.md](STORAGE_REPORTS.md) for the API/data policy and
+[companion setup](../companion/windows/README.md) for launch and pairing instructions.
 
 - [Prisma 7 configuration and adapters](https://www.prisma.io/docs/guides/upgrade-prisma-orm/v7)
 - [Generated Prisma Client](https://www.prisma.io/docs/orm/v7/prisma-schema/overview/generators)

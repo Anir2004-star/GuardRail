@@ -32,7 +32,7 @@ after(async () => { server.closeAllConnections(); await new Promise((resolve) =>
 function call(method, path = "", body, bearer = tokenA, origin = env.FRONTEND_ORIGIN, extra = {}) {
   return globalThis.fetch(`${base}/api/v1/devices${path}`, { method, headers: { ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), ...(origin ? { Origin: origin } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
-const publicFields = ["id", "name", "type", "brand", "model", "os", "createdAt", "updatedAt", "status", "paired", "storage"].sort();
+const publicFields = ["id", "name", "type", "brand", "model", "os", "createdAt", "updatedAt", "status", "paired", "pairedAt", "credentialExpiresAt", "storage"].sort();
 test("device endpoints require real bearer authentication and verified account access", async () => {
   assert.equal((await call("GET", "", undefined, null)).status, 401);
   assert.equal((await call("GET", "", undefined, "invalid.jwt.token")).status, 401);
