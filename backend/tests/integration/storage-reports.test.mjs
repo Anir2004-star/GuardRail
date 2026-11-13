@@ -83,6 +83,24 @@ test("the native app can revoke its own credential without affecting another dev
   assert.equal(response.status, 204); assert.equal((await send(report(), first.deviceToken)).status, 401);
   assert.equal((await send(report(), second.deviceToken)).status, 200);
 });
+
+test("paired apps automatically sync only their own brand, model and OS; revoked apps cannot change details", async () => {
+  const record = await device(); const otherDevice = await device(); const issued = await pair(record);
+  const sync = (body, credential = issued.deviceToken) => fetch(`${base}/api/v1/companion/device-details`, { method: "POST", headers: { Authorization: `Device ${credential}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await sync({ brand: " Acer ", model: " Swift Go ", os: " Windows 11 Home " })).status, 200);
+  const saved = (await (await get(record.id)).json()).device;
+  assert.equal(saved.brand, "Acer"); assert.equal(saved.model, "Swift Go"); assert.equal(saved.os, "Windows 11 Home"); assert.equal(saved.name, record.name);
+  assert.equal((await (await get(otherDevice.id)).json()).device.brand, null);
+  assert.equal((await sync({ os: "Windows 11 Pro" })).status, 200);
+  assert.equal((await (await get(record.id)).json()).device.model, "Swift Go");
+  for (const input of [{ brand: "x".repeat(81) }, { model: " " }, { os: "bad\0value" }, {}, { name: "PRIVATE_NAME" }, { brand: "Acer", deviceId: otherDevice.id }]) {
+    const rejected = await sync(input); assert.equal(rejected.status, 400); assert.ok(!(await rejected.text()).includes("PRIVATE_NAME"));
+  }
+  assert.equal((await sync({ brand: "Spoofed" }, token)).status, 401);
+  await disconnectDevice(owner.id, record.id, {});
+  assert.equal((await sync({ brand: "Revoked" })).status, 401);
+  assert.equal((await prisma.device.findUnique({ where: { id: record.id } })).brand, "Acer");
+});
 test("Windows companion pairs, saves a real DPAPI credential, reads capacity and stops after website revocation", { skip: process.platform !== "win32", timeout: 60000 }, async () => {
   const record = await device(); const start = await startDevicePairing(owner.id, record.id, {});
   const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", fileURLToPath(new URL("../../../companion/windows/tests/Test-LivePairing.ps1", import.meta.url))], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -98,6 +116,9 @@ test("Windows companion pairs, saves a real DPAPI credential, reads capacity and
         const pairing = await prisma.devicePairingSession.findUnique({ where: { id: start.pairing.id } });
         assert.equal(event.comparisonCode, pairing.comparisonCode);
         await decideDevicePairing(owner.id, record.id, pairing.id, "approve", { claimId: pairing.claimId });
+      } else if (event.stage === "profile-synced") {
+        const saved = (await (await get(record.id)).json()).device;
+        assert.ok(saved.brand || saved.model || saved.os); assert.equal(saved.name, record.name);
       } else if (event.stage === "reported") {
         const snapshot = await prisma.deviceStorageReport.findUnique({ where: { deviceId: record.id } });
         assert.equal(snapshot.reportId, event.reportId); assert.ok(snapshot.volumes.length > 0);

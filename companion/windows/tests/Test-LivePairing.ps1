@@ -30,6 +30,10 @@ try {
     $credential = Read-GuardrailCredential $directory
     $result = Request '/api/v1/companion/me' GET $null Device $credential.deviceToken
     if ($result.Status -ne 200 -or $result.Data.device.id -cne $credential.deviceId) { throw 'Identity failed' }
+    $profile = Get-GuardrailDeviceProfile
+    $result = Request '/api/v1/companion/device-details' POST $profile Device $credential.deviceToken
+    if ($result.Status -ne 200 -or $result.Data.deviceId -cne $credential.deviceId -or $result.Data.synced -ne $true) { throw 'Device details sync failed' }
+    [Console]::WriteLine('{"stage":"profile-synced"}')
     $report = Get-GuardrailCapacityReport
     $result = Request '/api/v1/companion/storage-reports' POST $report Device $credential.deviceToken
     if ($result.Status -ne 200 -or $result.Data.reportId -cne $report.reportId) { throw 'Report failed' }
@@ -37,6 +41,8 @@ try {
     if ([Console]::ReadLine() -cne 'revoked') { throw 'Expected revocation signal' }
     $result = Request '/api/v1/companion/me' GET $null Device $credential.deviceToken
     if ($result.Status -ne 401) { throw 'Revoked identity accepted' }
+    $result = Request '/api/v1/companion/device-details' POST $profile Device $credential.deviceToken
+    if ($result.Status -ne 401) { throw 'Revoked device details accepted' }
     $result = Request '/api/v1/companion/storage-reports' POST (Get-GuardrailCapacityReport) Device $credential.deviceToken
     if ($result.Status -ne 401) { throw 'Revoked report accepted' }
     [Console]::WriteLine('{"stage":"complete"}')

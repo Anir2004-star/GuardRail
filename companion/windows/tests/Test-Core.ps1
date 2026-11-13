@@ -15,6 +15,18 @@ $client = $null
 try {
     Assert ((ConvertTo-GuardrailOrigin ' http://localhost:4000/ ') -ceq 'http://localhost:4000') 'Local origin normalization failed.'
     Assert ((ConvertTo-GuardrailOrigin 'https://api.example.org/') -ceq 'https://api.example.org') 'HTTPS origin rejected.'
+    $profile = Get-GuardrailDeviceProfile
+    Assert ($profile.Count -ge 1 -and $profile.Count -le 3) 'Expected detected brand, model or operating system.'
+    foreach ($key in $profile.Keys) {
+        Assert ($key -in @('brand', 'model', 'os')) 'Device detection included unsupported personal or hardware identifiers.'
+        Assert ($profile[$key].Length -ge 1 -and $profile[$key].Length -le 80) 'Invalid detected field length.'
+    }
+    $detection = Start-GuardrailProfileDetection
+    try {
+        Assert ($detection.Task.AsyncWaitHandle.WaitOne(15000)) 'Background detection did not finish.'
+        $detected = $detection.Worker.EndInvoke($detection.Task)
+        Assert (!$detection.Worker.HadErrors -and $detected.Count -eq 1 -and $detected[0].Count -gt 0) 'Background detection failed.'
+    } finally { $detection.Worker.Dispose() }
     foreach ($bad in @('http://remote.example.org', 'https://name:secret@example.org', 'https://example.org/path', 'https://example.org?token=secret', 'https://example.org/#secret', 'file:///C:/test', 'http://127.0.0.1.evil.example')) { Reject { ConvertTo-GuardrailOrigin $bad } }
     $token = New-TestToken
     Assert (Test-GuardrailToken $token Device) 'Canonical device token rejected.'
@@ -59,7 +71,7 @@ try {
     Write-Output ('PASS: ' + $script:count + ' companion checks (origins, token isolation, DPAPI, ACL, atomic replacement, corruption, capacity and request restrictions).')
 } finally {
     if ($client) { $client.Dispose() }
-    Remove-GuardrailCredential $directory
+    if ([IO.Directory]::Exists($directory)) { Remove-GuardrailCredential $directory }
     # This unique test directory only; no recursive deletion and no user settings.
     if ([IO.Directory]::Exists($directory)) { [IO.Directory]::Delete($directory, $false) }
 }

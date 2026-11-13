@@ -26,6 +26,10 @@ $script:nextReport = [DateTime]::MaxValue
 $script:nextCheck = [DateTime]::MaxValue
 $script:exchangeAttempted = $false
 $script:closing = $false
+$script:profileDetection = $null
+$script:detectedProfile = $null
+$script:profileSynced = $false
+$script:nextProfile = [DateTime]::MinValue
 $client = New-GuardrailHttpClient
 
 $form = New-Object Windows.Forms.Form
@@ -66,6 +70,7 @@ $pairButton = Add-Button 'Connect using code'
 $form.AcceptButton = $pairButton
 $comparison = Add-Text '' 46 23
 $status = Add-Text 'Not paired.' 65
+$profileStatus = Add-Text 'Brand, model and Windows version sync automatically after pairing.' 45
 $share = New-Object Windows.Forms.CheckBox
 $share.Text = 'Share fixed-drive capacity every minute while this window is open'
 $share.Size = New-Object Drawing.Size(550, 44); $share.Enabled = $false; $layout.Controls.Add($share)
@@ -89,6 +94,9 @@ function Forget-Session {
     Remove-GuardrailCredential
     $script:session = $null; $script:claim = $null; $share.Checked = $false
     $script:nextReport = [DateTime]::MaxValue; $script:nextCheck = [DateTime]::MaxValue
+    if ($script:profileDetection) { $script:profileDetection.Worker.Dispose(); $script:profileDetection = $null }
+    $script:detectedProfile = $null; $script:profileSynced = $false; $script:nextProfile = [DateTime]::MinValue
+    $profileStatus.Text = 'Brand, model and Windows version sync automatically after pairing.'
     $comparison.Text = ''; $forgetButton.Visible = $false
 }
 function Reset-Claim([string]$Message) {
@@ -115,7 +123,7 @@ function Send-Capacity {
 }
 function Handle-Result($Operation, $Result) {
     $kind = $Operation.Kind; $http = $Result.Status; $data = $Result.Data
-    if ($http -eq 401 -and $kind -in @('check', 'report', 'disconnect')) {
+    if ($http -eq 401 -and $kind -in @('check', 'report', 'profile', 'disconnect')) {
         Forget-Session; Show-Status 'Pairing expired or was revoked. Generate a new code on the website to reconnect.'; return
     }
     if ($http -lt 200 -or $http -ge 300) {
@@ -126,6 +134,9 @@ function Handle-Result($Operation, $Result) {
         } elseif ($kind -eq 'poll') {
             if ($http -eq 401) { Reset-Claim 'This pairing request is no longer valid. Generate a new code.' }
             else { $script:nextPoll = [DateTime]::UtcNow.AddSeconds($(if ($http -eq 429) { 60 } else { 10 })); Show-Status 'Pairing status is temporarily unavailable. Waiting to check again.' }
+        } elseif ($kind -eq 'profile') {
+            $script:nextProfile = [DateTime]::UtcNow.AddSeconds($(if ($http -eq 429) { 900 } else { 60 }))
+            $profileStatus.Text = 'Device details could not be synced yet. The app will retry automatically.'
         } elseif ($kind -eq 'disconnect') {
             Show-Status 'Could not confirm disconnection. Retry, or disconnect this device from the website. Saved pairing has been kept.'
         } else {
@@ -163,6 +174,18 @@ function Handle-Result($Operation, $Result) {
         'check' {
             if (!$data -or $data.device.id -cne $script:session.deviceId -or $data.device.name.Length -gt 60) { Show-Status 'Unexpected device response. Reporting is paused.'; $share.Checked = $false; return }
             Show-Status ('Paired to ' + $data.device.name + '. Backend reached at ' + [DateTime]::Now.ToString('HH:mm:ss') + '. Credential expires ' + [DateTimeOffset]::Parse($script:session.expiresAt).ToLocalTime().ToString('g') + '.')
+            if (!$script:profileSynced -and !$script:profileDetection -and !$script:detectedProfile -and [DateTime]::UtcNow -ge $script:nextProfile) {
+                $script:nextProfile = [DateTime]::UtcNow.AddSeconds(60)
+                $script:profileDetection = Start-GuardrailProfileDetection
+                $profileStatus.Text = 'Detecting brand, model and Windows version...'
+            }
+        }
+        'profile' {
+            if (!$data -or $data.deviceId -cne $script:session.deviceId -or $data.synced -ne $true) {
+                $profileStatus.Text = 'Device details sync could not be confirmed. Retrying later.'; return
+            }
+            $script:profileSynced = $true
+            $profileStatus.Text = 'Brand, model and Windows version synced. The website updates within 30 seconds.'
         }
         'report' {
             if (!$data -or $data.reportId -cne $Operation.ReportId -or [DateTimeOffset]::Parse($data.receivedAt).UtcDateTime -gt [DateTime]::UtcNow.AddMinutes(5)) { Show-Status 'Capacity report response could not be confirmed. Check the website before trying again.'; return }
@@ -205,11 +228,24 @@ $timer.Add_Tick({
         }
         if ($script:pending -or $script:closing) { return }
         $now = [DateTime]::UtcNow
+        if ($script:profileDetection -and $script:profileDetection.Task.IsCompleted) {
+            $detection = $script:profileDetection; $script:profileDetection = $null
+            try {
+                $values = $detection.Worker.EndInvoke($detection.Task)
+                if ($detection.Worker.HadErrors -or !$values.Count -or !$values[0].Count) { throw 'Detection unavailable' }
+                $script:detectedProfile = $values[0]; $script:nextProfile = $now
+            } catch { $profileStatus.Text = 'Windows details are unavailable. Detection will retry automatically.'; $script:nextProfile = $now.AddSeconds(60) }
+            finally { $detection.Worker.Dispose() }
+        }
         if ($script:claim) {
             if ($now -ge [DateTimeOffset]::Parse($script:claim.expiresAt).UtcDateTime) { Reset-Claim 'Pairing expired. Generate a new code on the website.'; Update-Controls }
             elseif ($now -ge $script:nextPoll) { $script:nextPoll = $now.AddSeconds(5); Begin-Request 'poll' '/api/v1/pairing/status' 'GET' $null 'Pairing' $script:claim.claimToken }
         } elseif ($script:session) {
             if ($now -ge [DateTimeOffset]::Parse($script:session.expiresAt).UtcDateTime) { Forget-Session; Show-Status 'Pairing expired. Generate a new code to reconnect.'; Update-Controls }
+            elseif (!$script:profileSynced -and $script:detectedProfile -and $now -ge $script:nextProfile) {
+                $script:nextProfile = $now.AddSeconds(60)
+                Begin-Request 'profile' '/api/v1/companion/device-details' 'POST' $script:detectedProfile 'Device' $script:session.deviceToken
+            }
             elseif ($share.Checked -and $now -ge $script:nextReport) { Send-Capacity }
             elseif ($now -ge $script:nextCheck) { $script:nextCheck = $now.AddSeconds(60); Begin-Request 'check' '/api/v1/companion/me' 'GET' $null 'Device' $script:session.deviceToken }
         }
@@ -232,6 +268,7 @@ try {
     if ($SmokeTest) { Write-Output 'PASS: native window and controls constructed without loading credentials or sending requests.' }
     else { $timer.Start(); [void]$form.ShowDialog() }
 } finally {
+    if ($script:profileDetection) { $script:profileDetection.Worker.Dispose(); $script:profileDetection = $null }
     $timer.Stop(); $timer.Dispose(); $client.Dispose(); $form.Dispose()
     $script:session = $null; $script:claim = $null
     if ($ownsMutex) { $mutex.ReleaseMutex() }; $mutex.Dispose()

@@ -53,6 +53,21 @@ credentials and pending pairings.
 
 ## Owner website
 
+`POST /api/v1/companion/device-details`, authenticated with the current Device
+credential, automatically syncs strict `{ brand?, model?, os? }` metadata. At least
+one nonempty field is required; each allows at most 80 characters without control
+characters. Values are trimmed; unknown fields, owner IDs, device IDs and names
+are rejected. Missing fields preserve existing values. Identical retries leave
+`updatedAt` unchanged. The response is `{ deviceId, synced: true }` with no account
+details or credential. The same owner/device locks, account access recheck, expiry,
+revocation, transport policy and 60/IP/15-minute limit apply. An app can update
+only its credential's device. No schema migration is needed: existing metadata
+columns are reused. Hardware details remain reported by the credential holder.
+
+The Windows companion syncs after fresh pairing and when an existing pairing is
+reopened, independently of the capacity-sharing toggle. Unpaired website-only
+registrations cannot detect hardware model; the user must pair the companion once.
+
 Owner-scoped device reads now include nullable `storage`:
 
 - `collectedAt`, `receivedAt`, `totalBytes`, `usedBytes`, `freeBytes`;

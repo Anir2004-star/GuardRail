@@ -10,7 +10,7 @@ Explicit demo mode continues to use separate sample pairing.
 1. Start PostgreSQL, the backend and frontend as described in the READMEs.
 2. Sign in with a verified account and open **My devices**.
 3. Register a device, choose **View details**, then **Generate pairing code**.
-4. The 12-character code is valid for five minutes. Enter it in the Windows
+4. The 12-character code is valid for fifteen minutes. Enter it in the Windows
    companion app. The browser keeps it in memory only; a reload cannot recover it.
 5. Compare the six-digit number on both screens. Only approve when they match
    on your physical device. Candidate name/platform/version are self-reported,
@@ -84,7 +84,7 @@ response is lost, its raw token cannot be recovered: restart pairing and approve
 again. The website never receives the device token. User and device row locks
 serialize claims, owner decisions, exchanges and disconnects.
 
-Pairing expires after five minutes without extending on claim/approval. Device
+Pairing expires after fifteen minutes without extending on claim/approval. Device
 credentials expire after 30 days, after which the user must pair again; automatic
 credential renewal and native secure storage are future companion work. **Paired**
 means a current unrevoked credential exists, not that the device is online.

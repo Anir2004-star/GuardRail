@@ -26,6 +26,10 @@ function parse<T>(schema: z.ZodType<T>, input: unknown, allowed: string[]): T {
 }
 export function parseDeviceRegistration(input: unknown) { return parse(deviceRegistrationSchema, input, ["requestId", "name", "type", "brand", "model", "os"]); }
 export function parseDeviceRename(input: unknown) { return parse(renameSchema, input, ["name"]); }
+const deviceDetailsSchema = z.strictObject({
+  brand: text(80, "brand").min(1).optional(), model: text(80, "model").min(1).optional(), os: text(80, "operating system").min(1).optional(),
+}).refine((value) => Object.keys(value).length > 0);
+export function parseDetectedDeviceDetails(input: unknown) { return parse(deviceDetailsSchema, input, ["brand", "model", "os"]); }
 export function parseDeviceId(input: unknown): string {
   const result = z.string().uuid().safeParse(input);
   if (!result.success) throw new InputValidationError({ id: ["Use a valid device identifier."] });

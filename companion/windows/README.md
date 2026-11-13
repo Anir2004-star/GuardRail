@@ -12,7 +12,7 @@ not a packaged/signed `.exe` release. Do not run it as administrator.
 2. In a separate terminal at the repository root, run `npm run dev` if the website
    is not already running. Open `http://localhost:3000` and sign in.
 3. Open **My devices**, register your Windows laptop if needed, then choose
-   **View details → Generate pairing code**. Codes last five minutes.
+   **View details → Generate pairing code**. Codes last fifteen minutes.
 4. Open this folder in File Explorer:
 
    ```text
@@ -32,6 +32,10 @@ not a packaged/signed `.exe` release. Do not run it as administrator.
    check **The numbers match on my device**, then click **Approve pairing**.
 7. Keep the companion open until it says it is paired. It collects the credential
    once and saves it using Windows encryption. You never copy a device token.
+   The app then automatically detects and syncs the manufacturer, model and Windows
+   version, even when capacity sharing is off. These fields appear on the website
+   within 30 seconds. Your chosen device name is preserved. Existing pairings also
+   sync details when reopened with this updated app; no registration is repeated.
 8. In the app, enable **Share fixed-drive capacity every minute while this window
    is open**. Sharing is off initially and after every restart. The app sends its
    first capacity report when you enable it. **Send capacity now** sends another.
@@ -92,6 +96,15 @@ asynchronous HTTP tasks checked by the UI timer, with a 15-second timeout and
 when pairing expires. Only one instance per Windows user is allowed.
 
 ## What is reported
+
+Device brand/model are read from `Win32_ComputerSystem.Manufacturer`/`Model`, and
+Windows edition/version from `Win32_OperatingSystem.Caption`/`Version`. Detection
+runs off the UI thread after backend identity validation, once per app launch.
+Failed detection or sync retries automatically, with backoff for rate limits.
+Missing/OEM placeholder values are omitted so they cannot erase known details.
+The app never queries or sends computer/user names, serials, product IDs or MAC
+addresses. These are companion-reported values, not independently attested hardware
+identity. See [Microsoft's system information guide](https://learn.microsoft.com/en-us/powershell/scripting/samples/collecting-information-about-computers).
 
 Only ready fixed logical volumes with drive letters are queried through .NET
 `DriveInfo`: drive letter, total bytes, and `TotalFreeSpace` bytes. Used bytes are

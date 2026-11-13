@@ -63,6 +63,8 @@ test("codes are stored only as hashes, claimed once; owner GET never exposes eit
   const device = await register(); const response = await own("POST", `${device.id}/pairing`);
   assert.equal(response.status, 201); assert.equal(response.headers.get("cache-control"), "no-store");
   const start = await response.json(); const row = await prisma.devicePairingSession.findUnique({ where: { id: start.pairing.id } });
+  const lifetime = row.expiresAt.getTime() - row.createdAt.getTime();
+  assert.ok(lifetime >= 899000 && lifetime <= 901000, "Pairing must last fifteen minutes");
   assert.equal(row.codeHash, pairingHash("code", start.code.replaceAll("-", "")));
   const claims = await Promise.all([1, 2].map(() => call("POST", "pairing/claim", { code: start.code, appName: "App", platform: "Windows" })));
   assert.deepEqual(claims.map((res) => res.status).sort(), [201, 409]);

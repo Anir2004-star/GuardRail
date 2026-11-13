@@ -212,7 +212,7 @@ async function pairingBackend(context: BrowserContext, state: Awaited<ReturnType
     if (fixture.fail) { const status = fixture.fail; fixture.fail = 0; await route.fulfill({ status, headers: cors, json: { error: { message: "PRIVATE_TOKEN" } } }); return; }
     if (path.endsWith("/pairing")) {
       fixture.starts++;
-      fixture.pairing = { id: randomUUID(), state: "Waiting", expiresAt: new Date(Date.now() + 300000).toISOString(), claimId: null, comparisonCode: null, candidate: null };
+      fixture.pairing = { id: randomUUID(), state: "Waiting", expiresAt: new Date(Date.now() + 900000).toISOString(), claimId: null, comparisonCode: null, candidate: null };
       if (fixture.lose) { fixture.lose = false; await route.abort("failed"); return; }
       await route.fulfill({ status: 201, headers: cors, json: { pairing: fixture.pairing, code: "ABCD-EFGH-JKLM" } }); return;
     }
@@ -257,6 +257,42 @@ test("pairing requires comparison approval, stays pending until exchange and can
   await page.getByRole("button", { name: "Disconnect companion app", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Pair your companion app" })).toBeVisible();
   expect(state.records.get(id)!.device.paired).toBe(false);
+});
+
+test("pairing code copies with feedback and becomes unavailable after fifteen minutes", async ({ page, context }) => {
+  await page.clock.install();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; await pairingBackend(context, state, id);
+  await page.goto(`/app/devices/${id}`);
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
+  await expect(page.locator(".pairing-panel")).toContainText("Expires 15 minutes after generation");
+  await page.getByRole("button", { name: "Copy pairing code", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toContainText("Copied");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("ABCD-EFGH-JKLM");
+  await page.clock.fastForward(14 * 60000);
+  await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toBeVisible();
+  await page.clock.fastForward(61000);
+  await expect(page.locator(".pairing-panel")).toContainText("Pairing expired");
+  await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveCount(0);
+});
+
+test("blocked clipboard access offers manual copying without claiming success", async ({ page, context }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Clipboard blocked"); } } });
+  });
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; await pairingBackend(context, state, id);
+  await page.goto(`/app/devices/${id}`);
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await page.getByRole("button", { name: "Copy pairing code", exact: true }).click();
+  await expect(page.locator(".pairing-panel")).toContainText("Select and copy the code manually");
+  await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toHaveText("Copy");
+  await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
 });
 test("pairing cancellation, rejection, expiry and lost responses remain recoverable without automatic writes", async ({ page, context }) => {
   const state = await backend(context); await page.goto("/app/devices"); await register(page);
@@ -335,3 +371,37 @@ test("impossible capacity responses are rejected without displaying invented mea
   await expect(page.locator("main").getByRole("alert")).toContainText("unexpected response");
   await expect(page.getByRole("progressbar")).toHaveCount(0);
 });
+
+for (const width of [390, 768, 1440]) {
+  test(`device detail cards keep content and pairing controls inside their borders at ${width}px`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const state = await backend(context); await page.goto("/app/devices"); await register(page);
+    await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+    const id = [...state.records.keys()][0]; await pairingBackend(context, state, id);
+    await page.goto(`/app/devices/${id}`);
+    await expect(page.getByRole("heading", { name: "Pair your companion app", exact: true })).toBeVisible();
+    const insets = await page.locator(".detail-grid > article").evaluateAll((cards) => cards.map((card) => {
+      const bounds = card.getBoundingClientRect();
+      const first = card.firstElementChild!.getBoundingClientRect();
+      const style = getComputedStyle(card);
+      return { left: first.left - bounds.left, top: first.top - bounds.top, right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom) };
+    }));
+    expect(insets).toHaveLength(3);
+    for (const inset of insets) {
+      expect(inset.left).toBeGreaterThanOrEqual(16); expect(inset.top).toBeGreaterThanOrEqual(16);
+      expect(inset.right).toBeGreaterThanOrEqual(16); expect(inset.bottom).toBeGreaterThanOrEqual(16);
+    }
+    await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toBeVisible();
+    const contained = await page.locator(".pairing-panel").evaluate((panel) => {
+      const bounds = panel.getBoundingClientRect();
+      return [...panel.querySelectorAll("button, .pairing-code-row")].every((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left >= bounds.left + 15 && rect.right <= bounds.right - 15 && rect.bottom <= bounds.bottom - 15;
+      });
+    });
+    expect(contained).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/device-layout-${width}.png`, fullPage: true });
+  });
+}

@@ -92,6 +92,35 @@ function Remove-GuardrailCredential([string]$Directory = (Get-GuardrailStoreDire
     catch { throw 'Could not remove saved pairing. Close the app and remove credential.bin from the companion settings folder.' }
 }
 
+function Get-GuardrailDeviceProfile {
+    $profile = @{}
+    # Explicit property selection excludes computer/user names, serials and product IDs.
+    try {
+        $system = Get-CimInstance -ClassName Win32_ComputerSystem -Property Manufacturer,Model -OperationTimeoutSec 5 -ErrorAction Stop
+        foreach ($field in @(@('brand', $system.Manufacturer), @('model', $system.Model))) {
+            $value = ([string]$field[1] -replace '[\x00-\x1f\x7f]', '').Trim()
+            if ($value -and $value -notmatch '^(Unknown|Default string|System manufacturer|System product name|To be filled by O\.?E\.?M\.?)$') {
+                $profile[$field[0]] = $value.Substring(0, [Math]::Min(80, $value.Length))
+            }
+        }
+    } catch { }
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -Property Caption,Version -OperationTimeoutSec 5 -ErrorAction Stop
+        $value = (([string]$os.Caption + ' ' + [string]$os.Version) -replace '[\x00-\x1f\x7f]', '').Trim()
+        if ($value) { $profile.os = $value.Substring(0, [Math]::Min(80, $value.Length)) }
+    } catch { }
+    if (!$profile.Count) { throw 'Windows device details are unavailable. Pairing remains valid; detection can retry later.' }
+    return $profile
+}
+
+function Start-GuardrailProfileDetection {
+    # Run CIM queries off the WinForms thread so a slow provider cannot freeze the window.
+    $worker = [PowerShell]::Create()
+    [void]$worker.AddScript("function Get-GuardrailDeviceProfile { ${function:Get-GuardrailDeviceProfile} }; Get-GuardrailDeviceProfile")
+    try { return @{ Worker = $worker; Task = $worker.BeginInvoke() } }
+    catch { $worker.Dispose(); throw 'Could not start device detection.' }
+}
+
 function Get-GuardrailCapacityReport {
     $volumes = @()
     foreach ($drive in [IO.DriveInfo]::GetDrives()) {
@@ -122,7 +151,7 @@ function New-GuardrailHttpClient {
 
 function Start-GuardrailRequest($Client, [string]$Origin, [string]$Path, [ValidateSet('GET', 'POST')][string]$Method, $Body = $null, [string]$Scheme = '', [string]$Token = '') {
     $originValue = ConvertTo-GuardrailOrigin $Origin
-    $allowed = @{ '/api/v1/pairing/claim' = 'POST'; '/api/v1/pairing/status' = 'GET'; '/api/v1/pairing/exchange' = 'POST'; '/api/v1/companion/me' = 'GET'; '/api/v1/companion/storage-reports' = 'POST'; '/api/v1/companion/disconnect' = 'POST' }
+    $allowed = @{ '/api/v1/pairing/claim' = 'POST'; '/api/v1/pairing/status' = 'GET'; '/api/v1/pairing/exchange' = 'POST'; '/api/v1/companion/me' = 'GET'; '/api/v1/companion/device-details' = 'POST'; '/api/v1/companion/storage-reports' = 'POST'; '/api/v1/companion/disconnect' = 'POST' }
     if (!$allowed.ContainsKey($Path) -or $allowed[$Path] -cne $Method) { throw 'Unsupported companion request.' }
     $expected = if ($Path -like '/api/v1/companion/*') { 'Device' } elseif ($Path -ne '/api/v1/pairing/claim') { 'Pairing' } else { '' }
     if ($expected -and ($Scheme -cne $expected -or !(Test-GuardrailToken $Token $expected))) { throw 'Invalid companion credential. Pair again.' }

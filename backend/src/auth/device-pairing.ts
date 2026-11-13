@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import type { Request } from "express";
 import { DeviceError } from "../services/device.service.js";
 
-export const PAIRING_TTL_SECONDS = 300;
+export const PAIRING_TTL_SECONDS = 15 * 60;
 export const DEVICE_CREDENTIAL_TTL_SECONDS = 30 * 24 * 60 * 60;
 export function pairingHash(purpose: "code" | "claim" | "device", secret: string) {
   return createHash("sha256").update(`guardrail:${purpose}:v1:${secret}`).digest("hex");
