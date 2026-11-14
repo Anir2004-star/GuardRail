@@ -7,6 +7,41 @@ not a packaged/signed `.exe` release. Do not run it as administrator.
 
 ## Start and pair — one step at a time
 
+**Automatic opening from the website:** Run `Start-Guardrail.cmd` once after
+getting this update. It registers `guardrail-companion://open` for your current
+Windows account, then starts the companion. After that, clicking **Generate
+pairing code** or **Generate a new code** on the website attempts to open the app
+two seconds after the code is generated. The existing window is restored if the
+updated app is already running. Close/reopen any older version once after updating.
+
+Chrome/Edge may ask to open the app, or require a fresh click. Accept the normal
+browser confirmation if you want to open it; the website also provides **Open
+Guardrail Companion** as a fallback. Browser safety prompts are not bypassed.
+The site cannot reliably tell whether the app is installed, so the message says
+it will *try* to open. On non-Windows devices, use a paired Windows device instead.
+
+The link only opens the window. No pairing code, account token, backend address or
+command is included in the URI. You still paste the code and explicitly approve
+the matching comparison number. It does not turn capacity sharing on automatically.
+
+Registration uses only `HKCU\Software\Classes\guardrail-companion`, needs no
+administrator rights and does not change browser policies, execution policies,
+firewall rules or automatic startup. The handler invokes one fixed quoted script
+and ignores incoming URI arguments. Unrelated handlers are not overwritten. After
+moving the repository, run the launcher again to update its installed path.
+See [Windows URI activation](https://learn.microsoft.com/en-us/windows/apps/develop/launch/handle-uri-activation).
+
+To register links without starting the app, run from the repository root:
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File companion/windows/Register-Guardrail.ps1
+```
+
+To remove only the app-link registration, add `-Unregister` to that command.
+This preserves your saved pairing and files. `-Inspect` prints the fixed command
+without changing the registry. `tests/Test-Protocol.ps1` verifies the command and
+activation signal without modifying the real registration.
+
 1. Keep Docker Desktop/PostgreSQL running. In a terminal inside `backend`, run
    `npm run dev` if your backend is not already running.
 2. In a separate terminal at the repository root, run `npm run dev` if the website
@@ -116,9 +151,17 @@ cover the reported letters, not all physical installed capacity; hidden partitio
 aliases and quotas can make hardware totals or user-available capacity differ.
 See [Microsoft's DriveInfo reference](https://learn.microsoft.com/en-us/dotnet/api/system.io.driveinfo).
 
-Folder scanning, permission grants, cleanup, remote commands, a system tray,
+Cleanup, remote folder grants/commands, a system tray,
 automatic startup, an installer and automatic credential renewal are outside this
 milestone. There is no API or app operation for deleting device files.
+
+## Selected-folder scans
+
+The companion now supports **Select folder → confirm metadata sharing → Scan and
+send metadata**, with progress and cancellation. Scroll down in its window to find
+these controls. See [the complete folder-scanning guide](../../backend/FOLDER_SCANS.md)
+for steps, exclusions, limitations, privacy and tests. Choose an ordinary local
+folder for the first scan; linked/cloud-only and system locations are excluded.
 
 ## Tests
 

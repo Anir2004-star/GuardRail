@@ -41,10 +41,10 @@ export function SessionManager() {
   return null;
 }
 
-export function SessionNotice() {
+export function SessionNotice({ hidePaused = false }: { hidePaused?: boolean } = {}) {
   const pathname = usePathname();
   const message = useAuthSession((state) => state.message);
   const status = useAuthSession((state) => state.status);
-  if (!message) return null;
+  if (!message || (hidePaused && status === "paused")) return null;
   return <div className="feedback session-notice" role="alert">{message}{status === "logout-failed" ? <> <button type="button" onClick={() => { void logoutClientSession(); }}>Retry logout</button></> : pathname !== "/login" && status !== "logging-out" && <> <Link href="/login" onClick={leaveClientSession}>Sign in again</Link></>}</div>;
 }

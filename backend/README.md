@@ -1043,6 +1043,9 @@ API contracts, security properties, expiry and remaining companion app work.
 
 ## Documentation links
 
+Step 20 adds [selected-folder metadata scans](FOLDER_SCANS.md): explicit local
+selection/confirmation, cancellable background scans and owner-only results.
+
 The Windows companion and bounded drive-capacity reporting are implemented in
 step 19. See [STORAGE_REPORTS.md](STORAGE_REPORTS.md) for the API/data policy and
 [companion setup](../companion/windows/README.md) for launch and pairing instructions.

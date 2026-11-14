@@ -3,18 +3,21 @@
 param([switch]$SmokeTest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Guardrail.Core.ps1"
+. "$PSScriptRoot\Guardrail.Scan.ps1"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 
 # A per-user mutex prevents two instances racing a one-time credential exchange.
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$mutex = New-Object Threading.Mutex($false, ('Local\GuardrailCompanion-' + $sid))
+$instanceSuffix = if ($SmokeTest) { 'smoke-' + [Guid]::NewGuid().ToString('N') } else { $sid }
+$openSignal = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::AutoReset, ('Local\GuardrailCompanionOpen-' + $instanceSuffix))
+$mutex = New-Object Threading.Mutex($false, ('Local\GuardrailCompanion-' + $instanceSuffix))
 $ownsMutex = $false
 try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
 if (!$ownsMutex) {
-    [void][Windows.Forms.MessageBox]::Show('Guardrail Companion is already running.', 'Guardrail')
-    $mutex.Dispose(); exit
+    [void]$openSignal.Set()
+    $openSignal.Dispose(); $mutex.Dispose(); exit
 }
 
 $script:session = $null
@@ -30,6 +33,11 @@ $script:profileDetection = $null
 $script:detectedProfile = $null
 $script:profileSynced = $false
 $script:nextProfile = [DateTime]::MinValue
+$script:scanJob = $null
+$script:scanPath = $null
+$script:scanOwnerToken = $null
+$script:scanResult = $null
+$script:scanCancelled = $false
 $client = New-GuardrailHttpClient
 
 $form = New-Object Windows.Forms.Form
@@ -78,6 +86,15 @@ $sendButton = Add-Button 'Send capacity now'; $sendButton.Enabled = $false
 $disconnectButton = Add-Button 'Disconnect this app'; $disconnectButton.Enabled = $false
 $forgetButton = Add-Button 'Forget saved pairing'; $forgetButton.Visible = $false
 $preview = Add-Text 'Reports contain drive letters and total/free byte counts only. No filenames or file contents are read. Closing this window stops reporting.' 80
+[void](Add-Text 'Read-only folder scan' 35 16)
+$folderButton = Add-Button 'Select folder'; $folderButton.Enabled = $false
+$folderLabel = Add-Text 'No folder selected. Select a small local folder to start.' 55
+$scanConsent = New-Object Windows.Forms.CheckBox
+$scanConsent.Text = 'I allow Guardrail to scan this folder and send a summary and the 20 largest file names, relative paths, sizes, types and modified dates to my paired backend.'
+$scanConsent.Size = New-Object Drawing.Size(550, 80); $scanConsent.Enabled = $false; $layout.Controls.Add($scanConsent)
+$scanButton = Add-Button 'Scan and send metadata'; $scanButton.Enabled = $false
+$cancelScan = Add-Button 'Cancel scan'; $cancelScan.Enabled = $false
+$scanStatus = Add-Text 'No scan started. Files are never changed or deleted. File contents are not read.' 70
 
 function Show-Status([string]$Text) { $status.Text = $Text }
 function Update-Controls {
@@ -89,8 +106,20 @@ function Update-Controls {
     $share.Enabled = $hasSession -and !$busy
     $sendButton.Enabled = $hasSession -and $share.Checked -and !$busy
     $disconnectButton.Enabled = $hasSession -and !$busy
+    $folderButton.Enabled = $hasSession -and !$script:scanJob -and !$busy -and !$script:scanResult
+    $scanConsent.Enabled = $hasSession -and !!$script:scanPath -and !$script:scanJob -and !$busy -and !$script:scanResult
+    $scanButton.Enabled = $scanConsent.Enabled -and $scanConsent.Checked
+    $cancelScan.Enabled = $null -ne $script:scanJob -or $null -ne $script:scanResult
+}
+function Clear-FolderScan {
+    $script:scanCancelled = $true
+    if ($script:scanJob) { $script:scanJob.Cancel(); $script:scanJob.Dispose(); $script:scanJob = $null }
+    $script:scanResult = $null; $script:scanOwnerToken = $null; $script:scanPath = $null
+    $scanConsent.Checked = $false; $folderLabel.Text = 'No folder selected.'
+    $scanStatus.Text = 'No pending scan is kept. Choose a folder after pairing.'
 }
 function Forget-Session {
+    Clear-FolderScan
     Remove-GuardrailCredential
     $script:session = $null; $script:claim = $null; $share.Checked = $false
     $script:nextReport = [DateTime]::MaxValue; $script:nextCheck = [DateTime]::MaxValue
@@ -123,7 +152,7 @@ function Send-Capacity {
 }
 function Handle-Result($Operation, $Result) {
     $kind = $Operation.Kind; $http = $Result.Status; $data = $Result.Data
-    if ($http -eq 401 -and $kind -in @('check', 'report', 'profile', 'disconnect')) {
+    if ($http -eq 401 -and $kind -in @('check', 'report', 'profile', 'scan', 'disconnect')) {
         Forget-Session; Show-Status 'Pairing expired or was revoked. Generate a new code on the website to reconnect.'; return
     }
     if ($http -lt 200 -or $http -ge 300) {
@@ -134,6 +163,8 @@ function Handle-Result($Operation, $Result) {
         } elseif ($kind -eq 'poll') {
             if ($http -eq 401) { Reset-Claim 'This pairing request is no longer valid. Generate a new code.' }
             else { $script:nextPoll = [DateTime]::UtcNow.AddSeconds($(if ($http -eq 429) { 60 } else { 10 })); Show-Status 'Pairing status is temporarily unavailable. Waiting to check again.' }
+        } elseif ($kind -eq 'scan') {
+            $scanStatus.Text = 'Scan upload could not be confirmed. Check the website before rescanning. Results were not automatically retried.'
         } elseif ($kind -eq 'profile') {
             $script:nextProfile = [DateTime]::UtcNow.AddSeconds($(if ($http -eq 429) { 900 } else { 60 }))
             $profileStatus.Text = 'Device details could not be synced yet. The app will retry automatically.'
@@ -187,6 +218,10 @@ function Handle-Result($Operation, $Result) {
             $script:profileSynced = $true
             $profileStatus.Text = 'Brand, model and Windows version synced. The website updates within 30 seconds.'
         }
+        'scan' {
+            if (!$data -or $data.scanId -cne $Operation.ScanId) { $scanStatus.Text = 'The scan upload response was unexpected. Check the website before rescanning.'; return }
+            $scanStatus.Text = 'Scan summary sent. The device page updates within 30 seconds. Choose a folder and confirm again for another scan.'
+        }
         'report' {
             if (!$data -or $data.reportId -cne $Operation.ReportId -or [DateTimeOffset]::Parse($data.receivedAt).UtcDateTime -gt [DateTime]::UtcNow.AddMinutes(5)) { Show-Status 'Capacity report response could not be confirmed. Check the website before trying again.'; return }
             Show-Status ('Capacity report accepted at ' + [DateTimeOffset]::Parse($data.receivedAt).ToLocalTime().ToString('T') + '. The website updates within 30 seconds.')
@@ -205,6 +240,42 @@ $pairButton.Add_Click({
     } catch { Show-Status 'Use an HTTPS backend address or http://localhost:4000. Do not include a path, query or credentials.' }
 })
 $share.Add_CheckedChanged({ if ($share.Checked) { $script:nextReport = [DateTime]::UtcNow } else { $script:nextReport = [DateTime]::MaxValue } })
+$folderButton.Add_Click({
+    $picker = New-Object Windows.Forms.FolderBrowserDialog
+    $picker.Description = 'Choose a personal local folder. Linked, cloud-only and system folders are excluded.'
+    $picker.ShowNewFolderButton = $false
+    try {
+        if ($picker.ShowDialog($form) -eq [Windows.Forms.DialogResult]::OK) {
+            try {
+                $script:scanPath = [GuardrailScanning.ScanJob]::ValidateRoot($picker.SelectedPath)
+                $folderLabel.Text = $script:scanPath; $scanConsent.Checked = $false
+                $scanStatus.Text = 'Confirm the metadata sharing statement, then click Scan and send metadata.'
+            } catch { $script:scanPath = $null; $folderLabel.Text = 'Choose a local personal subfolder outside linked or system locations.'; $scanConsent.Checked = $false }
+        }
+    } finally { $picker.Dispose(); Update-Controls }
+})
+$scanConsent.Add_CheckedChanged({ Update-Controls })
+$scanButton.Add_Click({
+    if (!$script:session -or !$scanConsent.Checked -or !$script:scanPath -or $script:scanJob -or $script:pending) { return }
+    try {
+        $script:scanOwnerToken = $script:session.deviceToken
+        $script:scanCancelled = $false
+        $script:scanJob = Start-GuardrailFolderScan $script:scanPath
+        $scanStatus.Text = 'Scanning file metadata in the selected folder...'
+    } catch { $scanStatus.Text = 'This folder could not be scanned. Choose a ready local personal folder.' }
+    Update-Controls
+})
+function Cancel-FolderScan {
+    if ($script:scanJob -or $script:scanResult) {
+        $script:scanCancelled = $true
+        if ($script:scanJob) { $script:scanJob.Cancel() }
+        $script:scanResult = $null
+        $scanConsent.Checked = $false
+        $scanStatus.Text = 'Scan cancelled. No scan results will be uploaded.'
+        Update-Controls
+    }
+}
+$cancelScan.Add_Click({ Cancel-FolderScan })
 $sendButton.Add_Click({ Send-Capacity })
 $disconnectButton.Add_Click({
     if ([Windows.Forms.MessageBox]::Show('Revoke this companion app credential and remove saved pairing?', 'Disconnect Guardrail', 'YesNo', 'Question') -eq 'Yes') {
@@ -220,14 +291,42 @@ $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 250
 $timer.Add_Tick({
     try {
+        if ($openSignal.WaitOne(0)) {
+            $form.Show(); $form.WindowState = [Windows.Forms.FormWindowState]::Normal
+            [void]$form.Activate()
+        }
         if ($script:pending -and $script:pending.Task.IsCompleted) {
             $operation = $script:pending; $script:pending = $null
             $result = Complete-GuardrailRequest $operation
             Handle-Result $operation $result
             Update-Controls
         }
+        if ($script:scanJob) {
+            if (!$script:scanJob.Completion.IsCompleted) {
+                $scanStatus.Text = 'Scanning: ' + $script:scanJob.Files + ' files, ' + [Math]::Round($script:scanJob.Bytes / 1MB, 1) + ' MiB; ' + $script:scanJob.Skipped + ' skipped.'
+            } else {
+                $job = $script:scanJob; $script:scanJob = $null
+                try {
+                    $result = $job.Completion.GetAwaiter().GetResult()
+                    if ($script:scanCancelled) { throw 'Scan cancelled' }
+                    if (!$script:session -or $script:session.deviceToken -cne $script:scanOwnerToken) { throw 'Session changed' }
+                    $script:scanResult = ConvertTo-GuardrailScanReport $result
+                    $scanStatus.Text = 'Scan finished. Sending the confirmed metadata summary...'
+                } catch { $script:scanResult = $null; $scanStatus.Text = 'Scan cancelled or unavailable. No scan report was sent.' }
+                finally { $job.Dispose(); $scanConsent.Checked = $false; Update-Controls }
+            }
+        }
         if ($script:pending -or $script:closing) { return }
         $now = [DateTime]::UtcNow
+        if ($script:scanResult) {
+            if ($script:session -and $script:session.deviceToken -ceq $script:scanOwnerToken -and [DateTimeOffset]::Parse($script:session.expiresAt).UtcDateTime -gt $now) {
+                $report = $script:scanResult; $script:scanResult = $null
+                Begin-Request 'scan' '/api/v1/companion/folder-scans' 'POST' $report 'Device' $script:session.deviceToken
+                if ($script:pending) { $script:pending.ScanId = $report.scanId }
+                else { $scanStatus.Text = 'Could not start the upload. Check the website before rescanning.' }
+            } else { $script:scanResult = $null; $scanStatus.Text = 'Pairing changed. The scan report was discarded.' }
+            return
+        }
         if ($script:profileDetection -and $script:profileDetection.Task.IsCompleted) {
             $detection = $script:profileDetection; $script:profileDetection = $null
             try {
@@ -256,7 +355,7 @@ $timer.Add_Tick({
         Update-Controls
     }
 })
-$form.Add_FormClosing({ $script:closing = $true; $timer.Stop(); $client.CancelPendingRequests() })
+$form.Add_FormClosing({ $script:closing = $true; $timer.Stop(); Clear-FolderScan; $client.CancelPendingRequests() })
 try {
     if (!$SmokeTest) {
         try {
@@ -265,11 +364,20 @@ try {
         } catch { $forgetButton.Visible = $true; Show-Status 'Saved pairing cannot be opened or has expired. Forget it here, revoke the old app on the website, then pair again.' }
     }
     Update-Controls
-    if ($SmokeTest) { Write-Output 'PASS: native window and controls constructed without loading credentials or sending requests.' }
+    if ($SmokeTest) {
+        # Exercise the completed-but-not-uploaded cancellation state without credentials or HTTP.
+        $script:scanResult = @{ scanId = 'test-only' }
+        Update-Controls
+        if (!$cancelScan.Enabled) { throw 'Queued scan cannot be cancelled.' }
+        Cancel-FolderScan
+        if ($script:scanResult -or !$script:scanCancelled -or $cancelScan.Enabled) { throw 'Queued scan cancellation did not discard metadata.' }
+        Write-Output 'PASS: native controls and queued-scan cancellation checked without loading credentials or sending requests.'
+    }
     else { $timer.Start(); [void]$form.ShowDialog() }
 } finally {
+    if ($script:scanJob) { $script:scanJob.Cancel(); $script:scanJob.Dispose(); $script:scanJob = $null }
     if ($script:profileDetection) { $script:profileDetection.Worker.Dispose(); $script:profileDetection = $null }
     $timer.Stop(); $timer.Dispose(); $client.Dispose(); $form.Dispose()
     $script:session = $null; $script:claim = $null
-    if ($ownsMutex) { $mutex.ReleaseMutex() }; $mutex.Dispose()
+    if ($ownsMutex) { $mutex.ReleaseMutex() }; $mutex.Dispose(); $openSignal.Dispose()
 }

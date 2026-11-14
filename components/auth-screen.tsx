@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { ArrowLeft, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { registerAccount } from "@/lib/registration-api";
 import { enterDemoSession, signInAccount } from "@/lib/session-coordinator";
 import { SessionNotice } from "./session-manager";
@@ -112,7 +112,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
             <h1>{title}</h1>
             <p>{signup ? "Create your account, verify your email, then sign in." : forgot ? "Enter your email. If an account exists, we'll send password reset instructions." : "Sign in with your registered email and password."}</p>
           </div>
-          <SessionNotice />
+          <SessionNotice hidePaused />
           <form onSubmit={submit} noValidate>
             {signup && <>
               <label>
@@ -178,7 +178,7 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" | "forgot" }) {
           <p className="muted-copy">{signup ? "Your password is sent to the backend and stored only as a hash. It is not saved in browser storage." : forgot ? "Reset links expire after a short time and can be used once." : "Your password is sent securely to the backend over HTTPS in production. It is never saved in browser storage."}</p>
         </div>
       </section>
-      <aside className="auth-art"><div><ShieldCheck /><h2>Your data deserves<br />a second thought.</h2><p>Every recommendation is transparent. Every destructive action waits for you.</p></div></aside>
+      <aside className="auth-art"><div><h2>Your data deserves<br />a second thought.</h2><p>Every recommendation is transparent. Every destructive action waits for you.</p></div></aside>
     </main>
   );
 }

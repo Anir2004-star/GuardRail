@@ -151,7 +151,7 @@ function New-GuardrailHttpClient {
 
 function Start-GuardrailRequest($Client, [string]$Origin, [string]$Path, [ValidateSet('GET', 'POST')][string]$Method, $Body = $null, [string]$Scheme = '', [string]$Token = '') {
     $originValue = ConvertTo-GuardrailOrigin $Origin
-    $allowed = @{ '/api/v1/pairing/claim' = 'POST'; '/api/v1/pairing/status' = 'GET'; '/api/v1/pairing/exchange' = 'POST'; '/api/v1/companion/me' = 'GET'; '/api/v1/companion/device-details' = 'POST'; '/api/v1/companion/storage-reports' = 'POST'; '/api/v1/companion/disconnect' = 'POST' }
+    $allowed = @{ '/api/v1/pairing/claim' = 'POST'; '/api/v1/pairing/status' = 'GET'; '/api/v1/pairing/exchange' = 'POST'; '/api/v1/companion/me' = 'GET'; '/api/v1/companion/device-details' = 'POST'; '/api/v1/companion/storage-reports' = 'POST'; '/api/v1/companion/folder-scans' = 'POST'; '/api/v1/companion/disconnect' = 'POST' }
     if (!$allowed.ContainsKey($Path) -or $allowed[$Path] -cne $Method) { throw 'Unsupported companion request.' }
     $expected = if ($Path -like '/api/v1/companion/*') { 'Device' } elseif ($Path -ne '/api/v1/pairing/claim') { 'Pairing' } else { '' }
     if ($expected -and ($Scheme -cne $expected -or !(Test-GuardrailToken $Token $expected))) { throw 'Invalid companion credential. Pair again.' }

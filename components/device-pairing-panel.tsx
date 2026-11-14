@@ -14,8 +14,16 @@ export function DevicePairingPanel({ device }: { device: RegisteredDevice }) {
   const [checked, setChecked] = useState(false); const [now, setNow] = useState(0);
   const [copyFeedback, setCopyFeedback] = useState<{ code: string; message: string; success: boolean } | null>(null);
   const alive = useRef(false); const epoch = useRef(0); const working = useRef(false);
+  const companionLink = useRef<HTMLAnchorElement>(null);
   const scope = `${device.id}:${session?.user.id}:${session?.accessToken}`;
   const current = useRef(scope); current.current = scope;
+  useEffect(() => {
+    if (!code || pairing?.state !== "Waiting" || !navigator.userAgent.includes("Windows")) return;
+    const timer = window.setTimeout(() => {
+      if (alive.current && current.current === scope && document.visibilityState === "visible" && Date.now() < Date.parse(pairing.expiresAt)) companionLink.current?.click();
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [code, pairing?.id, pairing?.state, pairing?.expiresAt, scope]);
   const load = useCallback(async () => {
     if (working.current) return;
     const request = ++epoch.current;
@@ -70,11 +78,11 @@ export function DevicePairingPanel({ device }: { device: RegisteredDevice }) {
   }
   return <article className="work-panel pairing-panel">
     <span className="eyebrow">DEVICE PAIRING</span><h2>{device.paired ? "Companion app paired" : "Pair your companion app"}</h2>
-    <p>Open Guardrail Companion on Windows and enter the code below. After pairing, you can enable drive capacity sharing in the app. Folder scanning and cleanup are coming later.</p>
+    <p>Open Guardrail Companion on Windows and enter the code below. After pairing, you can enable drive capacity sharing in the app. Choose a folder in the companion for a read-only scan. Cleanup is coming later.</p>
     {device.paired && <><p>Credential valid until {new Date(device.credentialExpiresAt!).toLocaleString("en-GB", { timeZone: "UTC" })} UTC. Pairing does not indicate whether the device is online.</p><button type="button" className="secondary" disabled={busy} onClick={() => void act("disconnect")}>Disconnect companion app</button><p className="source-note">Disconnecting revokes app access and cancels pending pairing. Your files stay on the device.</p></>}
     {!loaded && <p role="status">Loading pairing...</p>}
     {active && <p>Expires 15 minutes after generation · {remaining} remaining. Code expires at {new Date(pairing!.expiresAt).toLocaleTimeString("en-GB", { timeZone: "UTC" })} UTC.</p>}
-    {state === "Waiting" && <>{code ? <><p>Enter this code in the companion app on your device:</p><div className="pairing-code-row"><output className="pairing-code" aria-label="Pairing code">{code}</output><button type="button" className="pairing-copy-button" aria-label="Copy pairing code" title="Copy pairing code" disabled={busy} onClick={() => void copyCode()}>{copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}<span>{copied ? "Copied" : "Copy"}</span></button></div>{copyFeedback?.code === code && <p role="status" className={copyFeedback.success ? "source-note" : "field-error"}>{copyFeedback.message}</p>}<p>Share it only with the device you want to pair.</p></> : <p>The code is shown once. Generate a new code if you no longer have it.</p>}<p role="status">Waiting for your companion app...</p></>}
+    {state === "Waiting" && <>{code ? <><p>Enter this code in the companion app on your device:</p><div className="pairing-code-row"><output className="pairing-code" aria-label="Pairing code">{code}</output><button type="button" className="pairing-copy-button" aria-label="Copy pairing code" title="Copy pairing code" disabled={busy} onClick={() => void copyCode()}>{copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}<span>{copied ? "Copied" : "Copy"}</span></button></div>{copyFeedback?.code === code && <p role="status" className={copyFeedback.success ? "source-note" : "field-error"}>{copyFeedback.message}</p>}<p>Share it only with the device you want to pair.</p><p className="source-note">Guardrail Companion will try to open automatically after 2 seconds. Allow the browser prompt if shown, then paste this code in the app.</p><a ref={companionLink} className="secondary companion-open-link" href="guardrail-companion://open">Open Guardrail Companion</a><p className="source-note">First time? Run companion/windows/Start-Guardrail.cmd once to enable app links on this Windows account.</p></> : <p>The code is shown once. Generate a new code if you no longer have it.</p>}<p role="status">Waiting for your companion app...</p></>}
     {state === "Claimed" && pairing?.candidate && <><h3>Check the requesting app</h3><p>Reported by the app: <b>{pairing.candidate.appName}</b>, {pairing.candidate.platform}{pairing.candidate.appVersion ? ` (${pairing.candidate.appVersion})` : ""}. These details are not independently verified.</p><p>Compare this number with the number shown in your companion app:</p><output className="pairing-code" aria-label="Comparison number">{pairing.comparisonCode}</output><label className="pairing-confirm"><input type="checkbox" checked={checked} disabled={busy} onChange={(event) => setChecked(event.target.checked)} />The numbers match on my device.</label><div className="card-actions"><button type="button" className="button small" disabled={busy || !checked} onClick={() => void act("approve")}>Approve pairing</button><button type="button" className="secondary" disabled={busy} onClick={() => void act("reject")}>Reject app</button></div></>}
     {state === "Approved" && <p role="status">Approved. Waiting for the companion app to collect its credential.</p>}
     {state === "Completed" && device.paired && <p role="status">Pairing complete.</p>}

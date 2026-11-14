@@ -178,6 +178,23 @@ test("an interrupted operation marker blocks automatic replay", async ({ page, c
   expect(requests).toBe(0);
 });
 
+test("public sign-in hides the paused-renewal notice and decorative shield while workspace recovery stays available", async ({ page, context }) => {
+  let requests = 0;
+  await mock(context, (route) => { requests++; return success(route); });
+  await page.addInitScript(({ key }) => localStorage.setItem(key, JSON.stringify({ revision: "71e23186-bc0e-4f4c-bdf5-ac0df68cf038", state: "paused", message: "connection" })), { key });
+  await page.goto("/app/dashboard");
+  await expect(page.locator(".session-notice")).toContainText("Automatic retries are paused");
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  await expect(page.locator(".session-notice")).toHaveCount(0);
+  await expect(page.locator(".auth-art svg")).toHaveCount(0);
+  expect(requests).toBe(0);
+  await page.goto("/app/dashboard");
+  await expect(page.locator(".session-notice")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in again", exact: true })).toBeVisible();
+  expect(requests).toBe(0);
+});
+
 test("a malformed successful refresh response pauses without replaying the rotated cookie", async ({ page, context }) => {
   let requests = 0;
   await mock(context, async (route) => {

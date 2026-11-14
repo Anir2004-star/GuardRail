@@ -113,6 +113,7 @@ model Device {
   pairingSessions DevicePairingSession[]
   credentials DeviceCredential[]
   storageReport DeviceStorageReport?
+  folderScan DeviceFolderScan?
 
   @@unique([userId, requestId])
   @@index([userId, createdAt, id])
@@ -160,6 +161,7 @@ model DeviceCredential {
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   pairing DevicePairingSession @relation(fields: [pairingId], references: [id], onDelete: Cascade)
   storageReports DeviceStorageReport[]
+  folderScans DeviceFolderScan[]
 
   @@index([deviceId])
   @@index([expiresAt])
@@ -178,4 +180,18 @@ model DeviceStorageReport {
 
   @@index([credentialId])
   @@map("device_storage_reports")
+}
+
+model DeviceFolderScan {
+  deviceId String @id @map("device_id") @db.Uuid
+  credentialId String @map("credential_id") @db.Uuid
+  scanId String @map("scan_id") @db.Uuid
+  finishedAt DateTime @map("finished_at") @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  report Json
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  credential DeviceCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId])
+  @@map("device_folder_scans")
 }

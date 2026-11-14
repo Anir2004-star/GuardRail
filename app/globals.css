@@ -816,6 +816,7 @@ input, select { accent-color: var(--plum); }
 .auth-submit { width: 100%; }
 .google-auth { display: grid; gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 .google-auth .text-button { justify-self: start; text-align: left; }
+.google-auth .google-signin-icon { flex: 0 0 24px; width: 24px; height: 24px; padding: 3px; border-radius: 50%; background: white; }
 .status-pill.registered { color: var(--plum); background: var(--plum-soft); }
 .status-pill.registered i { background: var(--plum); }
 .device-report-pending { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; color: var(--muted); }
@@ -977,3 +978,21 @@ input, select { accent-color: var(--plum); }
   .account-device-details > .work-panel { padding: 20px; }
   .account-device-details .pairing-panel .card-actions .button { width: 100%; }
 }
+
+.account-device-details .device-folder-scan { grid-column: 1 / -1; }
+.device-folder-scan .section-bar { gap: 12px; flex-wrap: wrap; margin: 6px 0 18px; }
+.device-folder-scan > p { line-height: 1.7; }
+.folder-scan-empty { display: flex; align-items: center; gap: 12px; color: var(--muted); margin-top: 20px; }
+.folder-scan-summary { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin: 22px 0; }
+.folder-scan-summary > div { padding: 16px; border-radius: 10px; background: var(--surface-soft); }
+.folder-scan-summary b, .folder-scan-summary span { display: block; overflow-wrap: anywhere; }
+.folder-scan-summary b { font-size: 22px; }
+.folder-scan-summary span { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.scan-type-list { display: grid; gap: 12px; margin: 16px 0 26px; }
+.scan-type-list > div { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px 16px; font-size: 13px; }
+.scan-type-list progress { grid-column: 1 / -1; width: 100%; height: 8px; accent-color: var(--plum); }
+.scan-table-scroll { max-width: 100%; overflow-x: auto; margin: 18px 0; }
+.scan-table-scroll table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; text-align: left; }
+.scan-table-scroll th, .scan-table-scroll td { padding: 13px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.scan-table-scroll td:first-child { overflow-wrap: anywhere; max-width: 420px; min-width: 150px; }
+@media (max-width: 600px) { .folder-scan-summary { grid-template-columns: minmax(0,1fr); } }

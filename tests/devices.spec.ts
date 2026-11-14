@@ -3,6 +3,19 @@ import { randomUUID } from "node:crypto";
 import type { RegisteredDevice } from "../lib/device-api";
 import type { DevicePairing } from "../lib/device-api";
 
+test.beforeEach(async ({ page }) => {
+  // Observe protocol launch requests without opening real native apps during tests.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
+    const launches: string[] = [];
+    Object.assign(window, { guardrailTestLaunches: launches });
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("a") : null;
+      if (target?.href.startsWith("guardrail-companion:")) { event.preventDefault(); launches.push(target.href); }
+    }, true);
+  });
+});
+
 const cors = { "Access-Control-Allow-Origin": "http://localhost:3100", "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE", "Access-Control-Allow-Headers": "Authorization, Content-Type" };
 const profiles = {
   A: { id: "71e23186-bc0e-4f4c-bdf5-ac0df68cf038", name: "Device Owner A", firstName: "Device", middleName: null, lastName: "Owner A", email: "a@example.org", createdAt: "2026-11-01T12:00:00.000Z" },
@@ -36,7 +49,7 @@ async function backend(context: BrowserContext) {
     const owner: Owner = headers.authorization.includes("-B-") ? "B" : "A";
     const id = new URL(request.url()).pathname.replace(/^\/api\/v1\/devices\/?/, "");
     const method = request.method();
-    if (method === "GET" && id.endsWith("/pairing")) { await route.fulfill({ headers: cors, json: { pairing: null } }); return; }
+    if (method === "GET" && (id.endsWith("/pairing") || id.endsWith("/folder-scan"))) { await route.fulfill({ headers: cors, json: id.endsWith("/pairing") ? { pairing: null } : { scan: null } }); return; }
     if (method === "GET") {
       if (!id) {
         const devices = [...state.records.values()].filter((entry) => entry.owner === owner).map((entry) => entry.device);
@@ -294,6 +307,30 @@ test("blocked clipboard access offers manual copying without claiming success", 
   await expect(page.getByRole("button", { name: "Copy pairing code", exact: true })).toHaveText("Copy");
   await expect(page.getByLabel("Pairing code", { exact: true })).toHaveText("ABCD-EFGH-JKLM");
 });
+
+test("generating a code requests the companion after two seconds, with a manual fallback and no code in the link", async ({ page, context }) => {
+  await page.clock.install();
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; await pairingBackend(context, state, id);
+  await page.goto(`/app/devices/${id}`);
+  await page.getByRole("button", { name: "Generate pairing code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toBeVisible();
+  const launches = () => page.evaluate(() => (window as unknown as { guardrailTestLaunches: string[] }).guardrailTestLaunches);
+  expect(await launches()).toEqual([]);
+  await page.clock.fastForward(2100);
+  expect(await launches()).toEqual(["guardrail-companion://open"]);
+  await page.clock.fastForward(6000);
+  expect(await launches()).toHaveLength(1);
+  await page.getByRole("link", { name: "Open Guardrail Companion", exact: true }).click();
+  expect(await launches()).toHaveLength(2);
+  await page.getByRole("button", { name: "Generate a new code", exact: true }).click();
+  await expect(page.getByLabel("Pairing code", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel pairing", exact: true }).click();
+  await expect(page.locator(".pairing-panel")).toContainText("Pairing cancelled");
+  await page.clock.fastForward(2100);
+  expect(await launches()).toHaveLength(2);
+});
 test("pairing cancellation, rejection, expiry and lost responses remain recoverable without automatic writes", async ({ page, context }) => {
   const state = await backend(context); await page.goto("/app/devices"); await register(page);
   await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
@@ -386,7 +423,7 @@ for (const width of [390, 768, 1440]) {
       const style = getComputedStyle(card);
       return { left: first.left - bounds.left, top: first.top - bounds.top, right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom) };
     }));
-    expect(insets).toHaveLength(3);
+    expect(insets).toHaveLength(4);
     for (const inset of insets) {
       expect(inset.left).toBeGreaterThanOrEqual(16); expect(inset.top).toBeGreaterThanOrEqual(16);
       expect(inset.right).toBeGreaterThanOrEqual(16); expect(inset.bottom).toBeGreaterThanOrEqual(16);
@@ -405,3 +442,30 @@ for (const width of [390, 768, 1440]) {
     await page.screenshot({ path: `test-results/device-layout-${width}.png`, fullPage: true });
   });
 }
+
+test("folder scan metadata appears only for the paired owner, refreshes and clears after disconnect", async ({ page, context }) => {
+  const state = await backend(context); await page.goto("/app/devices"); await register(page);
+  await expect(page.getByRole("heading", { name: "Private workstation", exact: true })).toBeVisible();
+  const id = [...state.records.keys()][0]; const stored = state.records.get(id)!; stored.device = withCapacity(stored.device);
+  await pairingBackend(context, state, id);
+  let scan: Record<string, unknown> | null = null;
+  await context.route(`**/api/v1/devices/${id}/folder-scan`, async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fulfill({ status: 204, headers: cors }); return; }
+    expect(route.request().headers().authorization).toMatch(/^Bearer device-access-A-/);
+    await route.fulfill({ headers: cors, json: { scan } });
+  });
+  await page.goto(`/app/devices/${id}`);
+  const panel = page.locator(".device-folder-scan");
+  await expect(panel).toContainText("No folder scan received yet");
+  const now = new Date().toISOString();
+  scan = { scanId: randomUUID(), folderName: "My sample folder", startedAt: now, finishedAt: now, receivedAt: now, fileCount: 1, totalBytes: 2097152, skippedCount: 2, limitReached: true,
+    types: [{ type: ".pdf", count: 1, bytes: 2097152 }], largestFiles: [{ relativePath: "documents/report.pdf", type: ".pdf", bytes: 2097152, modifiedAt: now }] };
+  await panel.getByRole("button", { name: "Refresh scan", exact: true }).click();
+  await expect(panel).toContainText("My sample folder"); await expect(panel).toContainText("Partial coverage");
+  await expect(panel.getByRole("cell", { name: "documents/report.pdf", exact: true })).toBeVisible();
+  await expect(panel.getByRole("cell", { name: "2.0 MiB", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("report.pdf");
+  await page.getByRole("button", { name: "Disconnect companion app", exact: true }).click();
+  await expect(panel).toContainText("Pair the companion app before scanning");
+  await expect(panel).not.toContainText("report.pdf");
+});

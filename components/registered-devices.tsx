@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { DevicePairingPanel } from "./device-pairing-panel";
 import { DeviceStorageReport } from "./device-storage-report";
+import { DeviceFolderScan } from "./device-folder-scan";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, HardDrive, Laptop, LoaderCircle, RefreshCcw, Smartphone, Tablet, X } from "lucide-react";
@@ -91,7 +92,7 @@ export function RegisteredDevicesPage({ embedded = false, overview = false }: { 
   return <>
     {overview ? <div className="section-bar"><div><span className="eyebrow">YOUR ACCOUNT</span><h2>Registered devices</h2></div><Link className="secondary" href="/app/devices">Manage devices</Link></div>
       : embedded ? <div className="embedded-device-actions account-device-actions">{controls}</div> : <div className="page-heading"><div><span className="eyebrow">MY DEVICES</span><h1>My devices</h1><p>Register and manage the devices saved to your account.</p></div><div className="heading-actions">{controls}</div></div>}
-    {!overview && <div className="demo-notice page-demo-notice"><CircleAlert /><span>Pair Guardrail Companion on Windows to share drive capacity. Folder scanning and cleanup are coming later.</span></div>}
+    {!overview && <div className="demo-notice page-demo-notice"><CircleAlert /><span>Pair Guardrail Companion on Windows to share drive capacity. Choose a folder in the companion for a read-only scan. Cleanup is coming later.</span></div>}
     {records.loading ? <p role="status"><LoaderCircle className="spin" size={18} /> Loading your devices...</p>
       : records.error ? <div className="work-panel"><p className="field-error" role="alert">{records.error}</p><button type="button" className="secondary" onClick={() => void records.reload()}>Retry devices</button></div>
         : records.devices.length ? <div className="device-grid">{(overview ? records.devices.slice(0, 2) : records.devices).map((device) => <RecordCard device={device} key={device.id} overview={overview} />)}</div>
@@ -112,7 +113,7 @@ function DeviceDetails({ id }: { id: string }) {
   if (records.error || !device) return <div className="work-panel"><p className="field-error" role="alert">{records.error || "Could not load your device."}</p><button type="button" className="secondary" onClick={() => void records.reload()}>Retry device</button><Link href="/app/devices">Back to devices</Link></div>;
   const Icon = deviceIcon(device.type);
   return <><Link className="breadcrumb" href="/app/devices">← My devices</Link><div className="page-heading"><div className="device-title"><span className="device-icon large"><Icon /></span><div><span className="status-pill registered"><i />{device.paired ? "Paired" : "Registered"}</span><h1>{device.name}</h1><p>{device.type}</p></div></div><div className="heading-actions"><button type="button" className="secondary" onClick={() => setAction("rename")}>Rename</button><button type="button" className="text-button danger-text" onClick={() => setAction("remove")}>Remove device</button></div></div>
-    <section className="detail-grid account-device-details"><article className="work-panel"><span className="eyebrow">DEVICE DETAILS</span><p className="source-note">Brand, model and Windows version sync automatically after pairing the Windows companion app.</p><dl className="detail-list"><dt>Type</dt><dd>{device.type}</dd><dt>Brand</dt><dd>{device.brand || "Not provided"}</dd><dt>Model</dt><dd>{device.model || "Not provided"}</dd><dt>Operating system</dt><dd>{device.os || "Not provided"}</dd><dt>Registered</dt><dd>{dateLabel(device.createdAt)}</dd><dt>Updated</dt><dd>{dateLabel(device.updatedAt)}</dd></dl></article><DevicePairingPanel key={device.id} device={device} /><article className="work-panel device-capacity-panel"><span className="eyebrow">DRIVE CAPACITY</span><h2>Storage report</h2><DeviceStorageReport device={device} detailed /></article></section>
+    <section className="detail-grid account-device-details"><article className="work-panel"><span className="eyebrow">DEVICE DETAILS</span><p className="source-note">Brand, model and Windows version sync automatically after pairing the Windows companion app.</p><dl className="detail-list"><dt>Type</dt><dd>{device.type}</dd><dt>Brand</dt><dd>{device.brand || "Not provided"}</dd><dt>Model</dt><dd>{device.model || "Not provided"}</dd><dt>Operating system</dt><dd>{device.os || "Not provided"}</dd><dt>Registered</dt><dd>{dateLabel(device.createdAt)}</dd><dt>Updated</dt><dd>{dateLabel(device.updatedAt)}</dd></dl></article><DevicePairingPanel key={device.id} device={device} /><article className="work-panel device-capacity-panel"><span className="eyebrow">DRIVE CAPACITY</span><h2>Storage report</h2><DeviceStorageReport device={device} detailed /></article><DeviceFolderScan id={device.id} paired={device.paired} /></section>
     {action && <RecordDialog mode={action} device={device} close={() => setAction(null)} removed={() => router.replace("/app/devices")} />}
   </>;
 }

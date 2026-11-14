@@ -123,6 +123,9 @@ test("Windows companion pairs, saves a real DPAPI credential, reads capacity and
         const snapshot = await prisma.deviceStorageReport.findUnique({ where: { deviceId: record.id } });
         assert.equal(snapshot.reportId, event.reportId); assert.ok(snapshot.volumes.length > 0);
         assert.ok((await (await get(record.id)).json()).device.storage.totalBytes > 0);
+      } else if (event.stage === "folder-scanned") {
+        const saved = await prisma.deviceFolderScan.findUnique({ where: { deviceId: record.id } });
+        assert.equal(saved.report.fileCount, 1); assert.equal(saved.report.totalBytes, 12); assert.equal(saved.report.largestFiles[0].relativePath, "sample.txt");
         await disconnectDevice(owner.id, record.id, {}); child.stdin.write("revoked\n");
       } else if (event.stage === "complete") complete = true;
     }

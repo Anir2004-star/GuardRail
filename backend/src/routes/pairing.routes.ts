@@ -7,6 +7,7 @@ import { claimDevicePairing, disconnectCompanion, exchangeDevicePairing, getComp
 import { requireEmptyDeviceQuery } from "../validation/device.validation.js";
 import { acceptStorageReport } from "../services/storage-report.service.js";
 import { syncDeviceDetails } from "../services/device-profile.service.js";
+import { acceptFolderScan } from "../services/folder-scan.service.js";
 
 export const pairingRouter = Router();
 export const companionRouter = Router();
@@ -26,6 +27,9 @@ pairingRouter.post("/claim", limit(20), async (request, response) => { response.
 pairingRouter.get("/status", limit(300), async (request, response) => { response.json(await getCompanionPairing(readPairingCredential(request, "claim"))); });
 pairingRouter.post("/exchange", limit(60), async (request, response) => { response.status(201).json(await exchangeDevicePairing(readPairingCredential(request, "claim"), request.body)); });
 companionRouter.get("/me", limit(300), async (request, response) => { response.json(await getCompanionDevice(readPairingCredential(request, "device"))); });
+companionRouter.post("/folder-scans", limit(10), async (request, response) => {
+  response.json(await acceptFolderScan(readPairingCredential(request, "device"), request.body));
+});
 companionRouter.post("/device-details", limit(60), async (request, response) => {
   response.json(await syncDeviceDetails(readPairingCredential(request, "device"), request.body));
 });

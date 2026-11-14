@@ -5,6 +5,7 @@ import { requireAuthOrigin } from "../middleware/require-auth-origin.js";
 import { getDevice, listDevices, registerDevice, removeDevice, renameDevice } from "../services/device.service.js";
 import { requireEmptyDeviceQuery } from "../validation/device.validation.js";
 import { decideDevicePairing, disconnectDevice, getDevicePairing, startDevicePairing } from "../services/device-pairing.service.js";
+import { getFolderScan } from "../services/folder-scan.service.js";
 
 export const deviceRouter = Router();
 deviceRouter.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -35,6 +36,10 @@ const remove: AuthenticatedHandler = async (request, response) => {
 };
 deviceRouter.get("/", requireAuth, readLimit, list);
 deviceRouter.get("/:id", requireAuth, readLimit, get);
+deviceRouter.get("/:id/folder-scan", requireAuth, readLimit, async (request, response) => {
+  requireEmptyDeviceQuery(request.query);
+  response.json(await getFolderScan(response.locals.authUser.id, request.params.id));
+});
 deviceRouter.post("/", requireAuthOrigin, writeLimit, requireAuth, create);
 deviceRouter.patch("/:id", requireAuthOrigin, writeLimit, requireAuth, rename);
 deviceRouter.delete("/:id", requireAuthOrigin, writeLimit, requireAuth, remove);
